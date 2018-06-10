@@ -30,12 +30,12 @@
 #include "cjson.h"
 
 
-#define WIFI_PASSWORD "qiangying"//"{85208520}"//CONFIG_WIFI_PASSWORD
-#define WIFI_SSID     "dong_zhang"//"ChinaMobile"//CONFIG_WIFI_SSID
+#define WIFI_PASSWORD "{85208520}"//"qiangying"////CONFIG_WIFI_PASSWORD
+#define WIFI_SSID     "ChinaMobile"//"dong_zhang"////CONFIG_WIFI_SSID
 
 //tcp
 int g_iSock_fd;
-#define SERVER_IP  		"192.168.1.104"//"39.106.151.85"////
+#define SERVER_IP  		"192.168.1.102"//"39.106.151.85"////
 #define REMOTE_PORT		8088
 
 //
@@ -397,7 +397,7 @@ void rainbow(void *pvParameters)
 #endif
 #endif
 
-#define ESPBH1750	0
+#define ESPBH1750	1
 #if ESPBH1750
   #include "bh1750.h"
 
@@ -1601,11 +1601,17 @@ static void tcp_send_task(void *pvParameters)
     	    }
 
 #endif
+#if(ESPBH1750==1)
+
+				Init_BH1750(33, 27);
+				printf("--Ambient Light[%d]==%0.2flx\r\n",Read_BH1750(),Convert_BH1750());
+				cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(Read_BH1750()));
+#endif
 
     	    Num=28;
 
     	    cJSON_AddItemToObject(root, "waterLevel", cJSON_CreateNumber(90));
-    	    cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
+    	    //cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
     	    cJSON_AddItemToObject(root, "red", cJSON_CreateNumber(255));
     	    cJSON_AddItemToObject(root, "green", cJSON_CreateNumber(255));
     	    cJSON_AddItemToObject(root, "blue", cJSON_CreateNumber(255));
@@ -1861,16 +1867,7 @@ SOCKBEGIN:
 			}
 
 #endif
-#if(ESPBH1750==1)
-			else if(data_buffer[0]=='b' &&data_buffer[1]=='h'&&data_buffer[2]=='1'&&data_buffer[3]=='7')
-			{
-				Init_BH1750(33, 27);
-				printf("--Ambient Light[%d]==%0.2flx\r\n",Read_BH1750(),Convert_BH1750());
 
-			}
-
-
-#endif
 #if(ESPWS2812==1)
 			else if(data_buffer[0]=='r' &&data_buffer[1]=='g'&&data_buffer[2]=='b')
 			{
