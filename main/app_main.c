@@ -253,7 +253,7 @@ int play(const unsigned char *audio, uint32_t length ) {
 
 #endif
 
-#define ESPWS2812	0
+#define ESPWS2812	1
 #if ESPWS2812
 #include "ws2812.h" //Include library
 
@@ -1626,16 +1626,21 @@ static void tcp_send_task(void *pvParameters)
     	    int ret=send(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)), 0);//canot use sizeof(cJSON_Print(root))
 
     	}
-    	vTaskDelay(20000 / portTICK_RATE_MS);
+    	vTaskDelay(60000 / portTICK_RATE_MS);
     }
 }
+
+#define WEB_SERVER		"www.wodan.vip"
+//#define WEB_PORT		"80"
+//#define WEB_URL			"http://wodan.vip/"
+
 
 static void tcp_cli_task(void *pvParameters)
 {
 	struct sockaddr_in server_addr;
 	//uint8_t
 	char data_buffer[512];
-	uint8_t xbuffer[]="Temparature: 30.00C ";
+//	uint8_t xbuffer[]="Temparature: 30.00C ";
 //	uint8_t *xbuffer=malloc(512);
 	int length;
 	int err;
@@ -1646,11 +1651,33 @@ static void tcp_cli_task(void *pvParameters)
 	ws2812_init(WS2812_PIN);
 #endif
 
+    const struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+    };
+    struct addrinfo *res;
+    struct in_addr *addr;
+
+
+	err = getaddrinfo(WEB_SERVER, NULL, &hints, &res);
+
+    if(err != 0 || res == NULL) {
+        printf("DNS lookup failed err=%d res=%p", err, res);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+
+    /* Code to print the resolved IP.
+
+       Note: inet_ntoa is non-reentrant, look at ipaddr_ntoa_r for "real" code */
+    addr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
+    printf("DNS lookup succeeded. IP=%s\r\n", inet_ntoa(*addr));//DNS lookup succeeded. IP=39.106.151.85
+    //printf("addr:%d==%d\r\n",addr->s_addr,inet_addr("39.106.151.85")); //addr:1435986471==1435986471
+
 SOCKBEGIN:
 
 	do
 	{
-		g_iSock_fd = socket(AF_INET, SOCK_STREAM, 0);//socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		g_iSock_fd = socket(AF_INET, SOCK_STREAM, 0);//socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);  //socket(res->ai_family, res->ai_socktype, 0);
 		if (g_iSock_fd == -1)
 		{
 			close(g_iSock_fd);
@@ -1661,12 +1688,16 @@ SOCKBEGIN:
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr =inet_addr(SERVER_IP); /* 将目标服务器的IP写入一个结构体 */
+    server_addr.sin_addr.s_addr =inet_addr(SERVER_IP); /* 将目标服务器的IP写入一个结构体 */  //or  addr->s_addr
     server_addr.sin_port = htons(REMOTE_PORT);
+
+
 
 	do
     {
+		//connect(g_iSock_fd, res->ai_addr, res->ai_addrlen);
        err=connect(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr));//if success is 0
+		//err=connect(g_iSock_fd, res->ai_addr, sizeof(struct sockaddr));//if success is 0
        if(err!=0)
        {
         	printf("connect error %d....\r\n",err); //-1
@@ -1679,8 +1710,6 @@ SOCKBEGIN:
     printf("connect server success %s:%d....\r\n",SERVER_IP,REMOTE_PORT);
 
 //    send(g_iSock_fd,"The more efforts you make, the more fortunes you get.",sizeof("The more efforts you make, the more fortunes you get."), 0);
-
-
 
 	cJSON * root =  cJSON_CreateObject();//NULL
     cJSON * item =  cJSON_CreateObject();
@@ -1716,6 +1745,7 @@ SOCKBEGIN:
 			//send(g_iSock_fd, data_buffer,length, 0);
 
 			if(data_buffer[0]!='{'&&data_buffer[length]!='}') return;  //cjson
+
 				cJSON * root = NULL;
 				cJSON * item = NULL;//cjson对象
 				root = cJSON_Parse(data_buffer);
@@ -1730,8 +1760,8 @@ SOCKBEGIN:
 					  printf("%s\n", "无格式方式打印json：");
 					  printf("%s\n\n", cJSON_PrintUnformatted(root));
 
-					  printf("%s\n", "获取auth下的cjson对象:");
-					  item = cJSON_GetObjectItem(root, "auth");//
+//					  printf("%s\n", "获取auth下的cjson对象:");
+//					  item = cJSON_GetObjectItem(root, "auth");//
 #if 0
 					  switch(item->type)
 					  {
@@ -1754,37 +1784,165 @@ SOCKBEGIN:
 					      default:break;
 					   }
 #endif
-					   printf("%s\n", cJSON_Print(item));//"TDP"
+					 // if(item==NULL);
+					 // else
+					 // printf("%s\n", cJSON_Print(item));
+
+
 					   //printf("%d\n", item->type);//4——cJSON_String
 					   //printf("%s\n", item->string);//auth
 					  // printf("%s\n", item->valuestring);//TDP
 
 					   printf("%s\n", "获取pid下的cjson对象");
-					   item = cJSON_GetObjectItem(root, "pid");
+					   if((item = cJSON_GetObjectItem(root, "pid"))!=NULL)
 					   printf("%s\n", cJSON_Print(item));
 
 					   //printf("%s:", item->string);   //看一下cjson对象的结构体中这两个成员的意思  //pid:
 					   //printf("%s\n", item->valuestring);// 123456789
 
-					   printf("%s\n", "获取TYPE下的cjson对象");
+					   printf("%s\n", "获取type下的cjson对象");
 					   item = cJSON_GetObjectItem(root, "type");
-					   printf("%s\n", cJSON_Print(item));
-					   //printf("%d\n", item->valueint);//56
-					   //printf("%06f\n", item->valuedouble);//???
+					if(item==NULL);
+						else
+						{
+							printf("type:%s\n", cJSON_Print(item));//"WIFI1"  INCLUDE ""
+							if(strcmp(item->valuestring,"WIFI1")==0)
+							{
+								   printf("Matched type\r\n");
 
-					   printf("%s\n", "获取swVer下的cjson对象");
-					   item = cJSON_GetObjectItem(root, "swVer");
-					   printf("%s\n", cJSON_Print(item));
+							}
+						}
+
+
+
+//					   printf("%s\n", "获取swVer下的cjson对象");
+//					   item = cJSON_GetObjectItem(root, "swVer");
+//						  if(item==NULL);
+//						  else
+//					   printf("swVer:%s\n", cJSON_Print(item));
 
 					   printf("%s\n", "获取Mac下的cjson对象");
 					   item = cJSON_GetObjectItem(root, "srcMac");
-					   printf("%s\n", cJSON_Print(item));
+						  if(item==NULL);
+						  else
+					   printf("srcMac:%s\n", cJSON_Print(item));
 
 					   item = cJSON_GetObjectItem(root , "dstMac");
-					   printf("%s\n", cJSON_Print(item));
+						  if(item==NULL);
+						  else
+					   printf("dstMac:%s\n", cJSON_Print(item));
 
-					   //printf("%d\n", item->type);//get error why?
-					   //printf("%s\n", item->valuestring);
+#if(ESPWS2812==1)
+			uint8_t colorR=255,colorG=255,colorB=255;
+			item = cJSON_GetObjectItem(root, "red");
+			if(item==NULL);
+			else
+			{
+				//printf("red %d\n", item->type);//3  cJSON_Number
+				colorR=item->valueint;
+				printf("red %d\n", colorR);
+			}
+			item = cJSON_GetObjectItem(root, "green");
+			if(item==NULL);
+			else
+			{
+				//printf("green %d\n", item->type);//3 cJSON_Number
+				colorG=item->valueint;
+				printf("green %d\n", colorG);
+			}
+			item = cJSON_GetObjectItem(root, "blue");
+			if(item==NULL);
+			else
+			{
+				//printf("blue %d\n", item->type);//3 cJSON_Number
+				colorB=item->valueint;
+				printf("blue %d\n", colorB);
+			}
+
+			item = cJSON_GetObjectItem(root, "led");
+			if(item==NULL);
+			else
+			{
+				printf("led %d\n", item->valueint);
+			}
+
+
+			item = cJSON_GetObjectItem(root, "illum");
+			if(item==NULL);
+			else
+			{
+				printf("illum %d\n", item->valueint);
+			}
+
+			item = cJSON_GetObjectItem(root, "bright");
+			uint8_t brightValue;
+			if(item==NULL);
+			else
+			{
+				//printf("blue %d\n", item->type);//3 cJSON_Number
+				brightValue=item->valueint;
+				colorR=colorR*brightValue/100;
+				colorG=colorR*brightValue/100;
+				colorB=colorR*brightValue/100;
+				printf("R%d G%d B%d\n", colorR,colorG,colorB);
+			}
+			rgbVal colorRGB=makeRGBVal(colorR, colorG, colorB);
+			int i=0;
+			for(i=0;i<pixel_count;i++)
+			{
+				pixels[i] = colorRGB;
+			}
+			ws2812_setColors(pixel_count,  pixels);
+
+			item = cJSON_GetObjectItem(root, "led");
+			if(item==NULL);
+			else
+			{
+				printf("led %d\n", item->valueint);
+			}
+			item = cJSON_GetObjectItem(root, "ledModel");
+			if(item==NULL);
+			else
+			{
+				printf("ledModel %d\n", item->valueint);
+			}
+
+			item = cJSON_GetObjectItem(root, "temp");
+			if(item==NULL);
+			else
+			{
+				printf("temp %d\n", item->valueint);
+			}
+
+			item = cJSON_GetObjectItem(root, "humidity");
+			if(item==NULL);
+			else
+			{
+				printf("humidity %d\n", item->valueint);
+			}
+
+			item = cJSON_GetObjectItem(root, "fan");
+			if(item==NULL);
+			else
+			{
+				printf("fan %d\n", item->valueint);
+			}
+			item = cJSON_GetObjectItem(root, "pump");
+			if(item==NULL);
+			else
+			{
+				printf("pump %d\n", item->valueint);
+			}
+			item = cJSON_GetObjectItem(root, "sound");
+			if(item==NULL);
+			else
+			{
+				printf("sound %d\n", item->valueint);
+			}
+
+
+
+#endif
 
 					   printf("\n%s\n", "打印json所有最内层键值对:");
 					   printJson(root);
@@ -1868,124 +2026,7 @@ SOCKBEGIN:
 
 #endif
 
-#if(ESPWS2812==1)
-			else if(data_buffer[0]=='r' &&data_buffer[1]=='g'&&data_buffer[2]=='b')
-			{
 
-				rgbVal color=makeRGBVal(255, 255, 255);
-				switch(data_buffer[3])
-				{
-
-					case '0':
-						color=makeRGBVal(255, 255, 255);
-						pixels[0] = color;
-
-						color=makeRGBVal(255, 255, 255);
-						pixels[1] = color;
-
-						color=makeRGBVal(255, 255, 255);
-						pixels[2] = color;
-						ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '1'://red
-					    color=makeRGBVal(255, 0, 0);
-					    pixels[0] = color;
-
-					    color=makeRGBVal(255, 0, 0);
-					    pixels[1] = color;
-
-					    color=makeRGBVal(255, 0, 0);
-					    pixels[2] = color;
-					    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '2'://green
-				    color=makeRGBVal(0, 255, 0);
-				    pixels[0] = color;
-
-				    color=makeRGBVal(0, 255, 0);
-				    pixels[1] = color;
-
-				    color=makeRGBVal(0, 255, 0);
-				    pixels[2] = color;
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '3'://blue
-				    color=makeRGBVal(0, 0, 255);
-				    pixels[0] = color;
-
-				    color=makeRGBVal(0, 0, 255);
-				    pixels[1] = color;
-
-				    color=makeRGBVal(0, 0, 255);
-				    pixels[2] = color;
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '4':
-				    color=makeRGBVal(255, 20, 147);//DeepPink
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '5':
-				    color=makeRGBVal(160, 32, 240);//Purple
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '6':
-				    color=makeRGBVal(124,252, 0);//LawnGreen
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '7':
-				    color=makeRGBVal(192,62, 255);//DarkOrchid1
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '8':
-				    color=makeRGBVal(28,28, 28);//grey11
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case '9':
-				    color=makeRGBVal(224,255, 255);//LightCyan1
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-					case 'a':
-				    color=makeRGBVal(123, 234, 56);
-				    pixels[0] = color;
-				    pixels[1] = color;
-				    pixels[2] = color;
-				    ws2812_setColors(pixel_count,  pixels);
-					break;
-
-					default:
-					    color=makeRGBVal(0, 0, 0);
-					    pixels[0] = color;
-					    pixels[1] = color;
-					    pixels[2] = color;
-					    ws2812_setColors(pixel_count,  pixels);
-					break;
-				}
-			}
-#endif
 #endif
 		memset(data_buffer,0,length);
 		}
