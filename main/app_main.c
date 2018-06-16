@@ -28,6 +28,7 @@
 #include "esp_task_wdt.h"
 
 #include "cjson.h"
+#include "driver/timer.h"
 
 
 #define WIFI_PASSWORD "{85208520}"//"qiangying"////CONFIG_WIFI_PASSWORD
@@ -191,7 +192,7 @@ int play(const unsigned char *audio, uint32_t length ) {
   memcpy(&bitsPerSample, (char*)audio + 34, sizeof(bitsPerSample)); // 8bit or 16bit
 
   //skip to tne next chunk
-  count = 16 + sizeof(chunkSize) + chunkSize;
+  count = 16 + sizeof(chunkSize) + chunkSize;//18
 
   //skip to the data chunk
   while (strncmp((char*)audio + count , "data", 4)) {
@@ -259,6 +260,7 @@ int play(const unsigned char *audio, uint32_t length ) {
 
 #define WS2812_PIN	15
 const uint8_t pixel_count = 3; // Number of your "pixels"
+uint8_t colorR=0,colorG=0,colorB=0;
 
 #define delay_ms(ms) vTaskDelay((ms) / portTICK_RATE_MS)
 #if 0
@@ -1528,24 +1530,6 @@ void printJson(cJSON * root)//以递归的方式打印json的最内层键值对
     }
 }
 
-TimerHandle_t xTimerUser; // 定义句柄
-// 定时器回调函数格式
-void vTimerCallback( TimerHandle_t xTimer )
-{
-    // do something no block
-    // 获取溢出次数
-    uint32_t ulCount = ( uint32_t ) pvTimerGetTimerID( xTimer );
-    // 累积溢出次数
-    ++ulCount;
-    // 更新溢出次数
-   // vTimerSetTimerID( xTimer, ( void * ) ulCount );
-
-    if (ulCount >= 10) {
-        // 停止定时器
-        xTimerStop( xTimer, 0 );
-        printf("Stop xTimer/r/n");
-    }
-}
 
 
 static void tcp_send_task(void *pvParameters)
@@ -1556,83 +1540,13 @@ static void tcp_send_task(void *pvParameters)
     {
     	//esp_task_wdt_feed();
     	//if((system_get_time()-esp_timer_count)>=20000000)  //20s
-    	{
-    		esp_timer_count=system_get_time();
-    		cJSON * root =  cJSON_CreateObject();//NULL
-    	    //cJSON * item =  cJSON_CreateObject();
-    	    //cJSON * next =  cJSON_CreateObject();
-
-    		int Num=1;
-    		//cJSON_AddItemToObject(root, "AUTH", cJSON_CreateString("TDP10"));
-    	    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "rc",Num);
-    	    Num=1;
-    	    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num));
-    	    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "operation", "CALL");
-    		//cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
-    		//cJSON_AddItemToObject(root, "hwVER", cJSON_CreateString("1.0"));
-
-    	    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
-//    		cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
-
-
-#if(ESPDHT11==1)
-    	    setDHTPin(DHT_GPIO);
-    	    if(ReadDHT11(dhtData))  //get temprature
-    	    {
-    	    	uint8_t outstr[10];
-    	    	DHT11_NumToString(dhtData[0],outstr);
-
-    	    	printf("Relative Humidity   :%s%%\r\n",outstr);
-
-    	    	DHT11_NumToString(dhtData[1],outstr);
-
-    	    	DHT11_NumToString(dhtData[2],outstr);
-    	    	printf("Current Temperature :%sC\r\n",outstr);
-    	    	DHT11_NumToString(dhtData[3],outstr);
-
-    	    	 cJSON_AddItemToObject(root, "temp", cJSON_CreateNumber(dhtData[2]));
-    	    	 cJSON_AddItemToObject(root, "humidity", cJSON_CreateNumber(dhtData[0]));
-
-    	    }
-    	    else
-    	    {
-    	    	printf("--Read DHT11 Error!--\n");
-
-    	    }
-
-#endif
-#if(ESPBH1750==1)
-
-				Init_BH1750(33, 27);
-				printf("--Ambient Light[%d]==%0.2flx\r\n",Read_BH1750(),Convert_BH1750());
-				cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(Read_BH1750()));
-#endif
-
-    	    Num=28;
-
-    	    cJSON_AddItemToObject(root, "waterLevel", cJSON_CreateNumber(90));
-    	    //cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
-    	    cJSON_AddItemToObject(root, "red", cJSON_CreateNumber(255));
-    	    cJSON_AddItemToObject(root, "green", cJSON_CreateNumber(255));
-    	    cJSON_AddItemToObject(root, "blue", cJSON_CreateNumber(255));
-    	    cJSON_AddItemToObject(root, "bright", cJSON_CreateNumber(100));
-    	    cJSON_AddItemToObject(root, "led", cJSON_CreateNumber(1));
-    	    cJSON_AddItemToObject(root, "ledMode", cJSON_CreateNumber(8));
-    	    cJSON_AddItemToObject(root, "fan", cJSON_CreateNumber(1));
-    	    cJSON_AddItemToObject(root, "pump", cJSON_CreateNumber(0));
-    	    cJSON_AddItemToObject(root, "sound", cJSON_CreateNumber(0));
-    	    cJSON_AddItemToObject(root, "live", cJSON_CreateNumber(1));
-    	    printf("%s\n", cJSON_Print(root));
-    	    int ret=send(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)), 0);//canot use sizeof(cJSON_Print(root))
-
-    	}
     	vTaskDelay(60000 / portTICK_RATE_MS);
     }
 }
 
 #define WEB_SERVER		"www.wodan.vip"
 //#define WEB_PORT		"80"
-//#define WEB_URL			"http://wodan.vip/"
+//#define WEB_URL		"http://wodan.vip/"
 
 
 static void tcp_cli_task(void *pvParameters)
@@ -1688,7 +1602,7 @@ SOCKBEGIN:
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr =inet_addr(SERVER_IP); /* 将目标服务器的IP写入一个结构体 */  //or  addr->s_addr
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);//addr->s_addr;/* 将目标服务器的IP写入一个结构体 */  //or  addr->s_addr
     server_addr.sin_port = htons(REMOTE_PORT);
 
 
@@ -1708,6 +1622,8 @@ SOCKBEGIN:
     }while(err!=0);
 
     printf("connect server success %s:%d....\r\n",SERVER_IP,REMOTE_PORT);
+    printf("connect server %s:%d....\r\n",inet_ntoa(*addr),REMOTE_PORT);
+
 
 //    send(g_iSock_fd,"The more efforts you make, the more fortunes you get.",sizeof("The more efforts you make, the more fortunes you get."), 0);
 
@@ -1741,8 +1657,8 @@ SOCKBEGIN:
 		if(length>0)//
 		{
 			data_buffer[length]='\0';//0x00;//字符串结束
-			printf("tcp cli rcv: %s/%d\r\n",data_buffer,length);
-			//send(g_iSock_fd, data_buffer,length, 0);
+			//printf("tcp cli rcv: %s/%d\r\n",data_buffer,length);
+			 //send(g_iSock_fd, data_buffer,length, 0);
 
 			if(data_buffer[0]!='{'&&data_buffer[length]!='}') return;  //cjson
 
@@ -1757,8 +1673,8 @@ SOCKBEGIN:
 				{
 					  printf("%s\n", "有格式的方式打印Json:");
 					  printf("%s\n\n", cJSON_Print(root));
-					  printf("%s\n", "无格式方式打印json：");
-					  printf("%s\n\n", cJSON_PrintUnformatted(root));
+					  //printf("%s\n", "无格式方式打印json：");
+					  //printf("%s\n\n", cJSON_PrintUnformatted(root));
 
 //					  printf("%s\n", "获取auth下的cjson对象:");
 //					  item = cJSON_GetObjectItem(root, "auth");//
@@ -1808,7 +1724,7 @@ SOCKBEGIN:
 							printf("type:%s\n", cJSON_Print(item));//"WIFI1"  INCLUDE ""
 							if(strcmp(item->valuestring,"WIFI1")==0)
 							{
-								   printf("Matched type\r\n");
+								   printf("Matched type!\r\n");
 
 							}
 						}
@@ -1833,7 +1749,7 @@ SOCKBEGIN:
 					   printf("dstMac:%s\n", cJSON_Print(item));
 
 #if(ESPWS2812==1)
-			uint8_t colorR=255,colorG=255,colorB=255;
+
 			item = cJSON_GetObjectItem(root, "red");
 			if(item==NULL);
 			else
@@ -1882,8 +1798,8 @@ SOCKBEGIN:
 				//printf("blue %d\n", item->type);//3 cJSON_Number
 				brightValue=item->valueint;
 				colorR=colorR*brightValue/100;
-				colorG=colorR*brightValue/100;
-				colorB=colorR*brightValue/100;
+				colorG=colorG*brightValue/100;
+				colorB=colorB*brightValue/100;
 				printf("R%d G%d B%d\n", colorR,colorG,colorB);
 			}
 			rgbVal colorRGB=makeRGBVal(colorR, colorG, colorB);
@@ -1898,6 +1814,7 @@ SOCKBEGIN:
 			if(item==NULL);
 			else
 			{
+
 				printf("led %d\n", item->valueint);
 			}
 			item = cJSON_GetObjectItem(root, "ledModel");
@@ -1905,6 +1822,29 @@ SOCKBEGIN:
 			else
 			{
 				printf("ledModel %d\n", item->valueint);
+
+				switch()
+				{
+					case 0:
+
+					break;
+					case 1:
+
+					break;
+					case 2:
+
+					break;
+					case 3:
+
+					break;
+					case 4:
+
+					break;
+					case 5:
+
+					break;
+					default:break;
+				}
 			}
 
 			item = cJSON_GetObjectItem(root, "temp");
@@ -1944,8 +1884,8 @@ SOCKBEGIN:
 
 #endif
 
-					   printf("\n%s\n", "打印json所有最内层键值对:");
-					   printJson(root);
+			//		   printf("\n%s\n", "打印json所有最内层键值对:");
+			//		   printJson(root);
 
 
 #if 0
@@ -2155,6 +2095,260 @@ void uart0_init(void)
 
 
 
+#define TIMER_INTR_SEL TIMER_INTR_LEVEL  /*!< Timer level interrupt */
+#define TIMER_GROUP    TIMER_GROUP_0     /*!< Test on timer group 0 */
+#define TIMER_DIVIDER   16               /*!< Hardware timer clock divider */
+#define TIMER_SCALE    (TIMER_BASE_CLK / TIMER_DIVIDER)  /*!< used to calculate counter value */
+#define TIMER_FINE_ADJ   (1.4*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000) /*!< used to compensate alarm value */
+#define TIMER_INTERVAL0_SEC   (3.4179)   /*!< test interval for timer 0 *///uint:secend
+#define TIMER_INTERVAL1_SEC   (300)//(5.78)   /*!< test interval for timer 1 *///uint:secend
+#define TEST_WITHOUT_RELOAD   0   /*!< example of auto-reload mode */
+#define TEST_WITH_RELOAD   1      /*!< example without auto-reload mode */
+
+typedef struct {
+    int type;                  /*!< event type */
+    int group;                 /*!< timer group */
+    int idx;                   /*!< timer number */
+    uint64_t counter_val;      /*!< timer counter value */
+    double time_sec;           /*!< calculated time from counter value */
+} timer_event_t;
+
+xQueueHandle timer_queue;
+
+/*
+ * @brief Print a uint64_t value
+ */
+static void inline print_u64(uint64_t val)
+{
+    printf("0x%08x%08x\n", (uint32_t) (val >> 32), (uint32_t) (val));
+}
+
+static void timer_example_evt_task(void *arg)
+{
+    while(1) {
+        timer_event_t evt;
+        xQueueReceive(timer_queue, &evt, portMAX_DELAY);
+        if(evt.type == TEST_WITHOUT_RELOAD) {
+//            printf("\n\n   example of count-up-timer \n");
+        } else if(evt.type == TEST_WITH_RELOAD) {
+//            printf("\n\n   example of reload-timer \n");
+        }
+        /*Show timer event from interrupt*/
+//        printf("-------INTR TIME EVT--------\n");
+//        printf("TG[%d] timer[%d] alarm evt\n", evt.group, evt.idx);
+//        printf("reg: ");
+//        print_u64(evt.counter_val);
+//        printf("time: %.8f S\n", evt.time_sec);
+        /*Read timer value from task*/
+//        printf("======TASK TIME======\n");
+//        uint64_t timer_val;
+//        timer_get_counter_value(evt.group, evt.idx, &timer_val);
+//        double time;
+//        timer_get_counter_time_sec(evt.group, evt.idx, &time);
+//        printf("TG[%d] timer[%d] alarm evt\n", evt.group, evt.idx);
+//        printf("reg: ");
+//        print_u64(timer_val);
+//        printf("time: %.8f S\n", time);
+
+    	{
+    		cJSON * root =  cJSON_CreateObject();//NULL
+    	    //cJSON * item =  cJSON_CreateObject();
+    	    //cJSON * next =  cJSON_CreateObject();
+
+    		int Num=1;
+    		//cJSON_AddItemToObject(root, "AUTH", cJSON_CreateString("TDP10"));
+    	    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "rc",Num);
+    	    Num=1;
+    	    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num+1));
+    	    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "operation", "CALL");
+    		//cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
+    		//cJSON_AddItemToObject(root, "hwVER", cJSON_CreateString("1.0"));
+
+    	    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
+//    		cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
+
+
+#if(ESPDHT11==1)
+    	    setDHTPin(DHT_GPIO);
+    	    if(ReadDHT11(dhtData))  //get temprature
+    	    {
+    	    	uint8_t outstr[10];
+    	    	DHT11_NumToString(dhtData[0],outstr);
+
+    	    	printf("Relative Humidity   :%s%%\r\n",outstr);
+
+    	    	DHT11_NumToString(dhtData[1],outstr);
+
+    	    	DHT11_NumToString(dhtData[2],outstr);
+    	    	printf("Current Temperature :%sC\r\n",outstr);
+    	    	DHT11_NumToString(dhtData[3],outstr);
+
+    	    	 cJSON_AddItemToObject(root, "temp", cJSON_CreateNumber(dhtData[2]));
+    	    	 cJSON_AddItemToObject(root, "humidity", cJSON_CreateNumber(dhtData[0]));
+
+    	    }
+    	    else
+    	    {
+    	    	printf("--Read DHT11 Error!--\n");
+
+    	    }
+
+#endif
+#if(ESPBH1750==1)
+			if(Init_BH1750(33, 27)==0)
+			{
+				uint16_t illum=0;
+				illum=Read_BH1750();
+				printf("--Ambient Light[%d]==%0.2flx\r\n",illum,(float)illum/1.2);
+				cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(Read_BH1750()));
+			}
+			else
+			{
+				printf("--Read BH1750 Error!--\n");
+			}
+
+#endif
+
+    	    Num=28;
+
+    	    cJSON_AddItemToObject(root, "waterLevel", cJSON_CreateNumber(90));
+    	    //cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
+    	    cJSON_AddItemToObject(root, "red", cJSON_CreateNumber(colorR));
+    	    cJSON_AddItemToObject(root, "green", cJSON_CreateNumber(colorG));
+    	    cJSON_AddItemToObject(root, "blue", cJSON_CreateNumber(colorB));
+    	    cJSON_AddItemToObject(root, "bright", cJSON_CreateNumber(80));
+    	    cJSON_AddItemToObject(root, "led", cJSON_CreateNumber(1));
+    	    cJSON_AddItemToObject(root, "ledMode", cJSON_CreateNumber(2));
+    	    cJSON_AddItemToObject(root, "fan", cJSON_CreateNumber(0));
+    	    cJSON_AddItemToObject(root, "pump", cJSON_CreateNumber(0));
+    	    cJSON_AddItemToObject(root, "sound", cJSON_CreateNumber(0));
+    	    cJSON_AddItemToObject(root, "live", cJSON_CreateNumber(1));
+    	    printf("%s\n", cJSON_Print(root));
+    	    int ret=send(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)), 0);//canot use sizeof(cJSON_Print(root))
+
+    	}
+
+    }
+}
+
+/*
+ * @brief timer group0 ISR handler
+ */
+void IRAM_ATTR timer_group0_isr(void *para)
+{
+    int timer_idx = (int) para;
+    uint32_t intr_status = TIMERG0.int_st_timers.val;
+    timer_event_t evt;
+    if((intr_status & BIT(timer_idx)) && timer_idx == TIMER_0) {
+        /*Timer0 is an example that doesn't reload counter value*/
+        TIMERG0.hw_timer[timer_idx].update = 1;
+
+        /* We don't call a API here because they are not declared with IRAM_ATTR.
+           If we're okay with the timer irq not being serviced while SPI flash cache is disabled,
+           we can alloc this interrupt without the ESP_INTR_FLAG_IRAM flag and use the normal API. */
+        TIMERG0.int_clr_timers.t0 = 1;
+        uint64_t timer_val = ((uint64_t) TIMERG0.hw_timer[timer_idx].cnt_high) << 32
+            | TIMERG0.hw_timer[timer_idx].cnt_low;
+        double time = (double) timer_val / (TIMER_BASE_CLK / TIMERG0.hw_timer[timer_idx].config.divider);
+
+        /*Post an event to out example task*/
+        evt.type = TEST_WITHOUT_RELOAD;
+        evt.group = 0;
+        evt.idx = timer_idx;
+        evt.counter_val = timer_val;
+        evt.time_sec = time;
+        xQueueSendFromISR(timer_queue, &evt, NULL);
+
+        /*For a timer that will not reload, we need to set the next alarm value each time. */
+        timer_val +=
+            (uint64_t) (TIMER_INTERVAL0_SEC * (TIMER_BASE_CLK / TIMERG0.hw_timer[timer_idx].config.divider));
+        /*Fine adjust*/
+        timer_val -= TIMER_FINE_ADJ;
+        TIMERG0.hw_timer[timer_idx].alarm_high = (uint32_t) (timer_val >> 32);
+        TIMERG0.hw_timer[timer_idx].alarm_low = (uint32_t) timer_val;
+        /*After set alarm, we set alarm_en bit if we want to enable alarm again.*/
+        TIMERG0.hw_timer[timer_idx].config.alarm_en = 1;
+
+    } else if((intr_status & BIT(timer_idx)) && timer_idx == TIMER_1) {
+        /*Timer1 is an example that will reload counter value*/
+        TIMERG0.hw_timer[timer_idx].update = 1;
+        /*We don't call a API here because they are not declared with IRAM_ATTR*/
+        TIMERG0.int_clr_timers.t1 = 1;
+        uint64_t timer_val = ((uint64_t) TIMERG0.hw_timer[timer_idx].cnt_high) << 32
+            | TIMERG0.hw_timer[timer_idx].cnt_low;
+        double time = (double) timer_val / (TIMER_BASE_CLK / TIMERG0.hw_timer[timer_idx].config.divider);
+        /*Post an event to out example task*/
+        evt.type = TEST_WITH_RELOAD;
+        evt.group = 0;
+        evt.idx = timer_idx;
+        evt.counter_val = timer_val;
+        evt.time_sec = time;
+        xQueueSendFromISR(timer_queue, &evt, NULL);
+        /*For a auto-reload timer, we still need to set alarm_en bit if we want to enable alarm again.*/
+        TIMERG0.hw_timer[timer_idx].config.alarm_en = 1;
+    }
+}
+
+/*
+ * @brief timer group0 hardware timer0 init
+ */
+static void example_tg0_timer0_init()
+{
+    int timer_group = TIMER_GROUP_0;
+    int timer_idx = TIMER_0;
+    timer_config_t config;
+    config.alarm_en = 1;
+    config.auto_reload = 0;
+    config.counter_dir = TIMER_COUNT_UP;
+    config.divider = TIMER_DIVIDER;
+    config.intr_type = TIMER_INTR_SEL;
+    config.counter_en = TIMER_PAUSE;
+    /*Configure timer*/
+    timer_init(timer_group, timer_idx, &config);
+    /*Stop timer counter*/
+    timer_pause(timer_group, timer_idx);
+    /*Load counter value */
+    timer_set_counter_value(timer_group, timer_idx, 0x00000000ULL);
+    /*Set alarm value*/
+    timer_set_alarm_value(timer_group, timer_idx, TIMER_INTERVAL0_SEC * TIMER_SCALE - TIMER_FINE_ADJ);//3.4179* -7
+    /*Enable timer interrupt*/
+    timer_enable_intr(timer_group, timer_idx);
+    /*Set ISR handler*/
+    timer_isr_register(timer_group, timer_idx, timer_group0_isr, (void*) timer_idx, ESP_INTR_FLAG_IRAM, NULL);
+    /*Start timer counter*/
+    timer_start(timer_group, timer_idx);
+}
+
+/*
+ * @brief timer group0 hardware timer1 init
+ */
+static void example_tg0_timer1_init()
+{
+    int timer_group = TIMER_GROUP_0;
+    int timer_idx = TIMER_1;
+    timer_config_t config;
+    config.alarm_en = 1;
+    config.auto_reload = 1;
+    config.counter_dir = TIMER_COUNT_UP;
+    config.divider = TIMER_DIVIDER;
+    config.intr_type = TIMER_INTR_SEL;
+    config.counter_en = TIMER_PAUSE;
+    /*Configure timer*/
+    timer_init(timer_group, timer_idx, &config);
+    /*Stop timer counter*/
+    timer_pause(timer_group, timer_idx);
+    /*Load counter value */
+    timer_set_counter_value(timer_group, timer_idx, 0x00000000ULL);
+    /*Set alarm value*/
+    timer_set_alarm_value(timer_group, timer_idx, TIMER_INTERVAL1_SEC * TIMER_SCALE);
+    /*Enable timer interrupt*/
+    timer_enable_intr(timer_group, timer_idx);
+    /*Set ISR handler*/
+    timer_isr_register(timer_group, timer_idx, timer_group0_isr, (void*) timer_idx, ESP_INTR_FLAG_IRAM, NULL);
+    /*Start timer counter*/
+    timer_start(timer_group, timer_idx);
+}
+
 
 void app_main()
 {
@@ -2292,11 +2486,22 @@ void app_main()
     free32start=heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
 #endif
 
-	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 10, NULL);//TCP Client task
+	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 10, NULL);//TCP Client create and rcv task
 
 	xTaskCreate(&tcp_send_task, "tcp_send_task", 2048, NULL, 8, NULL);//TCP Client Send Task
 
-   //    uart0_init();
+
+	/**
+	 * @brief In this test, we will test hardware timer0 and timer1 of timer group0.
+	 */
+    timer_queue = xQueueCreate(10, sizeof(timer_event_t));
+    //example_tg0_timer0_init();
+    example_tg0_timer1_init();
+    xTaskCreate(timer_example_evt_task, "timer_evt_task", 2048, NULL, 5, NULL);
+
+
+
+	//    uart0_init();
 //    xTaskCreatePinnedToCore(&uart_task, "uart_task", 512, NULL, 7, NULL,1);
 
 #if(ESPWS2812==1)
