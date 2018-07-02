@@ -20,6 +20,7 @@ typedef union {
 
 extern void ws2812_init(int gpioNum);
 extern void ws2812_setColors(unsigned int length, rgbVal *array);
+void ws2812_reset(int gpioNum);
 
 inline rgbVal makeRGBVal(uint8_t r, uint8_t g, uint8_t b)
 {

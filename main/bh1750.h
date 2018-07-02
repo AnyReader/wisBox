@@ -9,7 +9,7 @@
 #define BH1750_ONE  0x20
 #define BH1750_RSET 0x07
 
-void Init_BH1750(int pin_sda, int pin_scl);
+uint8_t Init_BH1750(int pin_sda, int pin_scl);
 //uint8_t Cmd_Write_BH1750(uint8_t cmd);
 //void Start_BH1750(void);
 

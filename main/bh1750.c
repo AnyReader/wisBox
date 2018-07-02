@@ -14,7 +14,7 @@
   Function   :Cmd_Write_BH1750
   Description:–¥BH1750 √¸¡Ó
   Input      : cmd ---√¸¡Ó
-  return     : none
+  return     : 0 success  not 0 failure
 *************************************************************/
 uint8_t Cmd_Write_BH1750(uint8_t cmd)
 {
@@ -35,7 +35,7 @@ uint8_t Cmd_Write_BH1750(uint8_t cmd)
     }
 //    __enable_irq();
     if (ret != 0) {
-        printf("BH1750_Write [%02x] failed\n", cmd);
+       // printf("BH1750_Write [%02x] failed\n", cmd);
     }
     _delay_ms(5);
     return ret;
@@ -60,12 +60,21 @@ void Start_BH1750(void)
   Input      : none
   return     : none
 *************************************************************/
-void Init_BH1750(int pin_sda, int pin_scl)
+uint8_t Init_BH1750(int pin_sda, int pin_scl)
 {
-
+	uint8_t ret=0;
 //	twi_init(pin_sda, pin_scl);//I2Cx_Init();
-	Cmd_Write_BH1750(BH1750_ON);	   //power on
-	Cmd_Write_BH1750(BH1750_RSET);	 //clear
+	if(Cmd_Write_BH1750(BH1750_ON))	   //power on
+	{
+		ret=0xff;
+		return ret;
+	}
+	if(Cmd_Write_BH1750(BH1750_RSET))	 //clear
+	{
+		ret=0xff;
+		return ret;
+	}
+	return ret;
 
 }
 

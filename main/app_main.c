@@ -25,20 +25,28 @@
 #include "driver/uart.h"
 
 #include "esp_system.h"
-#include "esp_task_wdt.h"
+//#include "esp_task_wdt.h"
 
 #include "cjson.h"
 #include "driver/timer.h"
 
+#include "limits.h"
+#include "lwip/netdb.h"
 
-#define WIFI_PASSWORD "{85208520}"//"qiangying"////CONFIG_WIFI_PASSWORD
-#define WIFI_SSID     "ChinaMobile"//"dong_zhang"////CONFIG_WIFI_SSID
+#define WIFI_SSID 	    "ChinaMobile"//"dong_zhang"//////CONFIG_WIFI_SSID
+#define WIFI_PASSWORD	"{85208520}"//"qiangying"//////CONFIG_WIFI_PASSWORD
 
 //tcp
-int g_iSock_fd;
-#define SERVER_IP  		"192.168.1.102"//"39.106.151.85"////
+
+#define WEB_SERVER		"www.wodan.vip"
+//#define WEB_PORT		"80"
+//#define WEB_URL		"http://wodan.vip/"
+
+int g_iSock_fd=-1;
+#define SERVER_IP  		"39.106.151.85"//"192.168.1.102"//"39.106.151.85"////
 #define REMOTE_PORT		8088
 
+uint32_t port=8086;
 //
 
 #define ESPIDFV21RC 1
@@ -78,6 +86,15 @@ int g_iSock_fd;
 //(ADC2_CHANNEL_0)	// GPIO_NUM_4
 
 //#include "esp_adc_cal.h"
+
+
+//uint64_t userTimeCount=0;
+uint32_t userTimeCount=0;
+
+xTaskHandle xHandleLedDisplay = NULL;
+//vTaskDelete(xHandleLedDisplay);
+
+size_t free8start=0, free32start=0, free8=0, free32=0;
 
 void tcp_server_task(void* arg);
 static void tcp_cli_task(void *pvParameters);
@@ -254,43 +271,101 @@ int play(const unsigned char *audio, uint32_t length ) {
 
 #endif
 
+	uint8_t colorR=0,colorG=0,colorB=0;
+	uint8_t brightValue;
+
+	uint8_t boolValue;//几个布尔状态值
+	//BIT0:LED开关
+	//BIT1:Fan开关
+	//BIT2:PUMP开关(水泵开关)
+	//BIT3:Audio开关
+	//BIT4:Live开关（活体检测开关）
+	//BIT5:Heater开关
+	//BIT6:PUMP开关(气泵开关)
+
+	uint8_t ledModel=0;
+
 #define ESPWS2812	1
 #if ESPWS2812
 #include "ws2812.h" //Include library
 
 #define WS2812_PIN	15
 const uint8_t pixel_count = 3; // Number of your "pixels"
-uint8_t colorR=0,colorG=0,colorB=0;
+rgbVal colorRGB;
+rgbVal *pixels;
+
+
+
 
 #define delay_ms(ms) vTaskDelay((ms) / portTICK_RATE_MS)
+
+
+void rgbDisplay(void *pvParameters)
+{
+	uint8_t r=0;
+	pixels = malloc(sizeof(rgbVal) * pixel_count);
+	uint8_t Breath_Direction = 0;
+	int i=0;
+	while(1)
+	{
+		if(ledModel==0 && xHandleLedDisplay!= NULL)
+		{
+			vTaskDelete(xHandleLedDisplay);
+		}
+
+		if(userTimeCount%6==0 && ledModel==1) //6ms is on 呼吸灯
+		{
+			if(Breath_Direction == 0) //根据方向决定应该执行何种操作
+			{
+				r++;
+			 	if(r >=255) Breath_Direction = 1; //呼到尽头，接下来该吸了。。。
+			}
+			else
+			{
+				r--;
+				if(r<= 0) Breath_Direction = 0;
+			}
+			colorRGB=makeRGBVal(r, 0, 0);
+			for(i=0;i<pixel_count;i++)
+			{
+				pixels[i] = colorRGB;
+			}
+			ws2812_setColors(pixel_count,  pixels);
+		}
+
+		printf("This is ledDisplay task \r\n");
+	}
+
+}
 #if 0
 void rainbow(void *pvParameters)
 {
-  const uint8_t anim_step = 10;
-  const uint8_t anim_max = 255;
+	const uint8_t anim_step = 10;
+	const uint8_t anim_max = 255;
 //  const uint8_t pixel_count = 3; // Number of your "pixels"
-  const uint8_t delay = 25; // duration between color changes
-  rgbVal color = makeRGBVal(anim_max, 0, 0);
-  uint8_t step = 0;
-  rgbVal color2 = makeRGBVal(anim_max, 0, 0);
-  uint8_t step2 = 0;
+	const uint8_t delay = 25; // duration between color changes
+	rgbVal color = makeRGBVal(anim_max, 0, 0);
+	uint8_t step = 0;
+	rgbVal color2 = makeRGBVal(anim_max, 0, 0);
+	uint8_t step2 = 0;
 
-  rgbVal *pixels;
-  pixels = malloc(sizeof(rgbVal) * pixel_count);
+	rgbVal *pixels;
+	pixels = malloc(sizeof(rgbVal) * pixel_count);
 
-  while (1)
-  {
+	while (1)
+	{
 #if 0
-    color = color2;
-    step = step2;
+		color = color2;
+		step = step2;
 
-    for (uint8_t i = 0; i < pixel_count; i++) {
-      pixels[i] = color;
+		for (uint8_t i = 0; i < pixel_count; i++) {
+			pixels[i] = color;
 
-      if (i == 1) {
-        color2 = color;
-        step2 = step;
-      }
+			if (i == 1)
+			{
+				color2 = color;
+				step2 = step;
+			}
 
       switch (step) {
       case 0:
@@ -399,7 +474,7 @@ void rainbow(void *pvParameters)
 #endif
 #endif
 
-#define ESPBH1750	1
+#define ESPBH1750	0
 #if ESPBH1750
   #include "bh1750.h"
 
@@ -425,14 +500,21 @@ bool is_moviemode_on()
     return (xEventGroupGetBits(espilicam_event_group) & MOVIEMODE_ON_BIT) ? 1 : 0;
 }
 
-static void set_moviemode(bool c) {
-    if (is_moviemode_on() == c) {
+static void set_moviemode(bool c)
+{
+    if (is_moviemode_on() == c)
+    {
         return;
-    } else {
-      if (c) {
-      xEventGroupSetBits(espilicam_event_group, MOVIEMODE_ON_BIT);
-      } else {
-      xEventGroupClearBits(espilicam_event_group, MOVIEMODE_ON_BIT);
+    }
+    else
+    {
+      if (c)
+      {
+    	  xEventGroupSetBits(espilicam_event_group, MOVIEMODE_ON_BIT);
+      }
+      else
+      {
+    	  xEventGroupClearBits(espilicam_event_group, MOVIEMODE_ON_BIT);
       }
     }
 }
@@ -987,7 +1069,7 @@ int mystrcmp(const char *str1,const char *str2)
 void tcp_server_task(void* arg)
 {
 #if ESPWS2812
-	rgbVal *pixels;
+//	rgbVal *pixels;
 	pixels = malloc(sizeof(rgbVal) * pixel_count);
 	rgbVal color;
 
@@ -1021,7 +1103,8 @@ SERVER_SOCK_BEGIN:
 	    server_addr.sin_port = htons(TCP_SERVER_PORT);  //server port
 
 	    err = bind(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-	    if (err < 0) {
+	    if (err < 0)
+	    {
 	       // RAW_ASSERT(0);
 	    	close(sock_fd);
 			printf("TCP server ask bind error!!!\n");
@@ -1030,7 +1113,8 @@ SERVER_SOCK_BEGIN:
 	    }
 
 	    err = listen(sock_fd, 1);
-	    if (err < 0) {
+	    if (err < 0)
+	    {
 	       // RAW_ASSERT(0);
 	    	close(sock_fd);
 			printf("ESP8266	TCP	server task failed	to	set	listen	queue!\n");
@@ -1465,7 +1549,7 @@ void sendpic(void)
     err=send(g_iSock_fd, bmp, sizeof(bitmap565), 0);
     free(bmp);
 
-    ESP_LOGD(TAG, "-Image requested.");
+    printf("-Image requested.");
     //ESP_LOGI(TAG, "task stack: %d", uxTaskGetStackHighWaterMark(NULL));
     uint32_t *fbl;
     s_moviemode = is_moviemode_on();
@@ -1481,13 +1565,17 @@ void sendpic(void)
     		fbl = &currFbPtr[(i*camera_get_fb_width())/2];  //(i*(320*2)/4); // 4 bytes for each 2 pixel / 2 byte read..
     		convert_fb32bit_line_to_bmp565(fbl, s_line, s_pixel_format);
     		err = send(g_iSock_fd, s_line, camera_get_fb_width()*2, 0);
+    		if(err<0)
+    		{
+    			closesocket(g_iSock_fd);
+    		}
     	}
     }
     //free(s_line);
 
 }
 
-
+/**
 void printJson(cJSON * root)//以递归的方式打印json的最内层键值对
 {
     for(int i=0; i<cJSON_GetArraySize(root); i++)   //遍历最外层json键值对
@@ -1524,48 +1612,592 @@ void printJson(cJSON * root)//以递归的方式打印json的最内层键值对
 	    {
         	printf("%s:", item->string);
 	    }
-
-
-
     }
+}
+**/
+static void socket_deinit()
+{
+   // close(g_iSock_fd);
+    closesocket(g_iSock_fd);
+    g_iSock_fd = g_iSock_fd -1;
+    port++;
 }
 
 
+static void socket_init()
+{
+#if 1
+//    struct addrinfo *res;
+    int err;
+    struct sockaddr_in saddr;// = { 0 };
+
+
+ //   tcpip_adapter_init();
+
+   // err = getaddrinfo("localhost", "80", &hints, &res);
+
+//    if (err != 0 || res == NULL) {
+//        printf("DNS lookup failed: %d", errno);
+//        return;
+//    }
+
+	if(g_iSock_fd>=0)
+	{
+		do
+		{
+			socket_deinit();
+		}while(g_iSock_fd>=0);
+	}
+
+
+SOCKBEGIN:
+
+do{
+    g_iSock_fd =  socket(AF_INET, SOCK_STREAM, 0);//socket(res->ai_family, res->ai_socktype, 0);
+
+    if (g_iSock_fd < 0)
+    {
+    	printf( "Failed to allocate socket %d.\r\n",errno);//Failed to allocate socket 23.
+    	socket_deinit();
+      //  freeaddrinfo(res);
+        vTaskDelay(500 /portTICK_RATE_MS);
+        //goto SOCKBEGIN;
+        //return;
+    }
+}while(g_iSock_fd < 0);
+
+#if 1 //bind local port
+do{
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(port);//htons(8086);
+    saddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    err = bind(g_iSock_fd, (struct sockaddr *) &saddr, sizeof(struct sockaddr_in));
+    if (err < 0)
+    {
+    	printf("Failed to bind socket %d\r\n",errno); //Failed to bind socket 98
+        //freeaddrinfo(res);
+        socket_deinit();
+        vTaskDelay(500 /portTICK_RATE_MS);
+        //goto SOCKBEGIN;
+        //return;
+    }
+}while(err < 0);
+#endif
+
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sin_family = AF_INET;
+    saddr.sin_addr.s_addr =inet_addr(SERVER_IP);
+    saddr.sin_port = htons(REMOTE_PORT);
+
+do{
+	err=connect(g_iSock_fd, (struct sockaddr *)&saddr, sizeof(struct sockaddr));
+    if (err!= 0)
+    {// err=connect(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr));
+    	printf("Socket connection failed: %d\r\n", errno);//Socket connection failed: 104
+    	socket_deinit();
+      //  freeaddrinfo(res);
+
+        vTaskDelay(500 /portTICK_RATE_MS);
+        goto SOCKBEGIN;
+        //return;
+    }
+}while(err!=0);
+
+//    freeaddrinfo(res);
+
+
+#endif
+    printf("connect server success %d/%d....\r\n",err,g_iSock_fd);//0 0
+
+}
 
 static void tcp_send_task(void *pvParameters)
 {
-	uint32_t esp_timer_count =system_get_time();
+//	uint32_t esp_timer_count =system_get_time();
     //esp_timer_count=system_get_time();
+	int ret;
+	int Num;
+
+//	socket_init();
+
+//	ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_32BIT));
+//	ESP_LOGI(TAG,"get free size of 8BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+    free32=xPortGetFreeHeapSizeCaps( MALLOC_CAP_32BIT );////heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+    free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+    free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
+    ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
+    ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
+    ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
+
+//    ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",xPortGetFreeHeapSizeCaps(MALLOC_CAP_32BIT));
     while(1)
     {
     	//esp_task_wdt_feed();
     	//if((system_get_time()-esp_timer_count)>=20000000)  //20s
-    	vTaskDelay(60000 / portTICK_RATE_MS);
+
+		cJSON * root =  cJSON_CreateObject();//NULL
+	    //cJSON * item =  cJSON_CreateObject();
+
+		Num=1;
+		//cJSON_AddItemToObject(root, "AUTH", cJSON_CreateString("TDP10"));
+	    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "rc",Num);
+	    Num=1;
+	    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num++));
+	    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI1"));//或者  cJSON_AddStringToObject(root, "operation", "CALL");
+		//cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
+		//cJSON_AddItemToObject(root, "hwVER", cJSON_CreateString("1.0"));
+
+	    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
+//    	cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
+
+#if(ESPDHT11==1)
+	    setDHTPin(DHT_GPIO);
+	    if(ReadDHT11(dhtData))  //get temprature
+	    {
+	    	uint8_t outstr[10];
+	    	DHT11_NumToString(dhtData[0],outstr);
+	    	//getHumidity=dhtData[2];
+	    	printf("Relative Humidity   :%s%%\r\n",outstr);
+
+	    	DHT11_NumToString(dhtData[1],outstr);
+
+	    	DHT11_NumToString(dhtData[2],outstr);
+	    	//getTemp=dhtData[2];
+	    	printf("Current Temperature :%sC\r\n",outstr);
+
+	    	DHT11_NumToString(dhtData[3],outstr);
+
+	    	cJSON_AddItemToObject(root, "temp", cJSON_CreateNumber(dhtData[2]));
+	    	cJSON_AddItemToObject(root, "humidity", cJSON_CreateNumber(dhtData[0]));
+	    }
+	    else
+	    {
+	    	printf("--Read DHT11 Error!--\n");
+	    }
+
+#endif
+#if(ESPBH1750==1)
+		if(Init_BH1750(33, 27)==0)
+		{
+			uint16_t illum=0;
+			illum=Read_BH1750();
+			printf("--Ambient Light[%d]==%0.2flx\r\n",illum,(float)illum/1.2);
+			cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(Read_BH1750()));
+		}
+		else
+		{
+			printf("--Read BH1750 Error!--\n");
+		}
+#endif
+
+	    Num=28;
+
+	    cJSON_AddItemToObject(root, "waterLevel", cJSON_CreateNumber(80));
+	    //cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
+
+	    cJSON_AddItemToObject(root, "red", cJSON_CreateNumber(colorR));
+	    cJSON_AddItemToObject(root, "green", cJSON_CreateNumber(colorG));
+	    cJSON_AddItemToObject(root, "blue", cJSON_CreateNumber(colorB));
+	    cJSON_AddItemToObject(root, "bright", cJSON_CreateNumber(brightValue));
+
+	    cJSON_AddItemToObject(root, "led", cJSON_CreateNumber((boolValue>>0)&0x01));
+	    cJSON_AddItemToObject(root, "ledModel", cJSON_CreateNumber(2));
+	    cJSON_AddItemToObject(root, "fan", cJSON_CreateNumber((boolValue>>1)&0x01));
+	    cJSON_AddItemToObject(root, "pump", cJSON_CreateNumber((boolValue>>2)&0x01));
+	    cJSON_AddItemToObject(root, "sound", cJSON_CreateNumber((boolValue>>3)&0x01));
+	    cJSON_AddItemToObject(root, "live", cJSON_CreateNumber((boolValue>>4)&0x01));
+
+	    char *out = cJSON_Print(root);
+	    printf("%s\n", out);	// 打印JSON数据包
+	    ret=send(g_iSock_fd, out, strlen(out), 0);//canot use sizeof(cJSON_Print(root))  //memory leak
+	    if(ret<0)
+	    {
+	    	socket_init();
+	    }
+		if(root)
+		{
+			cJSON_Delete(root);
+		}
+		if(out)
+			free(out);
+		vTaskDelay(5000 / portTICK_RATE_MS);
+//		ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_32BIT));
+//		ESP_LOGI(TAG,"get free size of 8BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#if 0
+	    free32=xPortGetFreeHeapSizeCaps( MALLOC_CAP_32BIT );////heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+	    free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+	    free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+	    free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
+	    ESP_LOGI(TAG, "#Free heap: %u", xPortGetFreeHeapSize());
+	    ESP_LOGI(TAG, "#Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
+	    ESP_LOGI(TAG, "#Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
+
+//	    ESP_LOGI(TAG,"#get free size of 32BIT heap : %d\n",xPortGetFreeHeapSizeCaps(MALLOC_CAP_32BIT));
+#endif
     }
 }
 
-#define WEB_SERVER		"www.wodan.vip"
-//#define WEB_PORT		"80"
-//#define WEB_URL		"http://wodan.vip/"
+
+void user_make_thread(char *xBuffer, uint32_t xLength)
+{
+	if(xBuffer[0]!='{') ;//return;  //cjson   &&data_buffer[length]!='}'如果有空格或者回车
+
+	cJSON * root = NULL;
+	cJSON * item = NULL;//cjson对象
+	root = cJSON_Parse(xBuffer);
+
+	if (!root)
+	{
+		printf("Error before: [%s]\n",cJSON_GetErrorPtr());
+	}
+	else
+	{
+		char *out = cJSON_PrintUnformatted(root);
+		printf("%s\n", "wu格式的方式print Json:");
+		printf("%s\n\n",out);
+		if(out)
+			free(out);
+		//printf("%s\n", "无格式方式打印json：");
+		//printf("%s\n\n", cJSON_PrintUnformatted(root));//Memory Leak
+
+		   //printf("%s\n", "获取pid下的cjson对象");
+		item = cJSON_GetObjectItem(root, "pid");
+		if(item!=NULL&&item->type==cJSON_Number)
+			printf("pid %d\n", item->valueint);
+
+		item = cJSON_GetObjectItem(root, "type");
+		if(item!=NULL&&(item->type == cJSON_String))
+		{
+			//printf("type:%s\n", cJSON_Print(item));//"WIFI1" //memory leak
+			if(strcmp(item->valuestring,"APP2")==0)
+			{
+				printf("\r\nAPP Begin to Control WiFi!\r\n");
+
+			}
+			else if(strcmp(item->valuestring,"APP0")==0)
+			{
+				printf("\r\nAPP logined!\r\n");
+			}
+		}
+
+//					   printf("%s\n", "获取swVer下的cjson对象");
+//					   item = cJSON_GetObjectItem(root, "swVer");
+//						  if(item==NULL);
+//						  else
+//					   printf("swVer:%s\n", cJSON_Print(item));//memory leak
 
 
+		item = cJSON_GetObjectItem(root, "srcMac");
+		if(item!=NULL&&(item->type == cJSON_String))
+		{
+			 printf("%s:", item->string);
+		}
+		item = cJSON_GetObjectItem(root , "dstMac");
+		if(item!=NULL&&(item->type == cJSON_String))
+		{
+			 printf("%s:", item->string);
+		}
+		item = cJSON_GetObjectItem(root , "fan");//and 手动模式
+		if(item!=NULL&&(item->type == cJSON_Number))
+		{
+			 printf("fan %d:", item->valueint);
+		}
+
+#if(ESPWS2812==1)
+
+		item = cJSON_GetObjectItem(root, "red");
+		if(item!=NULL&&(item->type == cJSON_Number))
+		{
+			colorR=item->valueint;
+			printf("red %d\n", colorR);
+		}
+	item = cJSON_GetObjectItem(root, "green");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		colorG=item->valueint;
+		printf("green %d\n", colorG);
+	}
+	item = cJSON_GetObjectItem(root, "blue");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		colorB=item->valueint;
+		printf("blue %d\n", colorB);
+	}
+
+#if 0
+	item = cJSON_GetObjectItem(root, "illum");//lx read only
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("illum %d\n", item->valueint);
+	}
+#endif
+
+	item = cJSON_GetObjectItem(root, "bright");
+	if(item!=NULL && (item->type == cJSON_Number))
+	{
+		brightValue=item->valueint;
+		colorR=colorR*brightValue/100;
+		colorG=colorG*brightValue/100;
+		colorB=colorB*brightValue/100;
+		printf("	R%d G%d B%d\n", colorR,colorG,colorB);
+	}
+	colorRGB=makeRGBVal(colorR, colorG, colorB);
+	int i=0;
+	for(i=0;i<pixel_count;i++)
+	{
+		pixels[i] = colorRGB;
+	}
+	ws2812_setColors(pixel_count,  pixels);
+
+	item = cJSON_GetObjectItem(root, "led"); //led switch
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("led %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+				boolValue &= ((~BIT0)&0xFF);
+				ws2812_reset(WS2812_PIN);//turn off
+				vTaskDelay(10 / portTICK_RATE_MS);//10ms
+				break;
+			case 1:
+				boolValue |= ((BIT0)&0x01);//turn on
+
+				break;
+			default:break;
+		}
+	}
+
+	item = cJSON_GetObjectItem(root, "ledModel");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("ledModel %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0://handle control
+				ledModel=0;
+			break;
+			case 1:
+				ledModel=1;//breath
+				if(xHandleLedDisplay==NULL)
+					xTaskCreate(rgbDisplay, "rgbDisplay", 4096, NULL, 10, &xHandleLedDisplay);//create a task or timer to do it
+			break;
+			case 2:
+				//vTaskDelete(xHandleLedDisplay);;//should delete task
+			break;
+			case 3:
+
+			break;
+			case 4:
+
+			break;
+			case 5:
+
+			break;
+			default:break;
+		}
+	}
+
+	item = cJSON_GetObjectItem(root, "nurseMode");//护理模式
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("nurseMode %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+
+			break;
+			case 1:
+
+			break;
+			case 2:
+
+			break;
+			case 3://auto  //should create a task
+	#if 0
+			if(setTemp>getTemp)  //设置温度大于实际温度
+			{
+				boolValue |= ((BIT1)&0x02);//open heater
+			}
+			else
+			{
+				boolValue &= ((~BIT1)&0xFF);//turn off//close heater
+			}
+
+			if(setHumidity>getHumidity)  //设置湿度大于实际湿度
+			{
+	//open water pump
+			}
+			else
+			{
+	//close water pump
+			}
+			if(getTemp>setTempMax)
+			{
+
+					//status error TempMax
+			}
+			else if(getTemp<setTempMin)
+			{
+					//status error TempMin
+			}
+
+	#endif
+
+			break;
+			case 4:
+
+			break;
+			case 5:
+
+			break;
+			default:break;
+		}
+	}
+	item = cJSON_GetObjectItem(root, "temp");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+//		setTemp=item->valueint;
+		printf("temp %d\n", item->valueint);
+	}
+
+	item = cJSON_GetObjectItem(root, "humidity");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("humidity %d\n", item->valueint);
+	}
+
+	item = cJSON_GetObjectItem(root, "fan");
+	if(item!=NULL&&(item->type == cJSON_Number))//and 手动控制模式
+	{
+		printf("fan %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+				boolValue &= ((~BIT1)&0xFF);//turn off
+				break;
+			case 1:
+				boolValue |= ((BIT1)&0x02);//turn on
+				break;
+			default:break;
+
+		}
+	}
+	item = cJSON_GetObjectItem(root, "pump");
+	if(item!=NULL&&(item->type == cJSON_Number)) //and 手动控制模式
+	{
+		printf("pump %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+				boolValue &= ((~BIT2)&0xFF);
+				//turn off
+				break;
+			case 1:
+				boolValue |= ((BIT2)&0x04);//turn on
+				break;
+			default:break;
+		}
+	}
+	item = cJSON_GetObjectItem(root, "sound");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("sound %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+				boolValue &= ((~BIT3)&0xFF);//turn off
+				break;
+			case 1:
+				boolValue |= ((BIT3)&0x08);//turn on
+				break;
+			default:break;
+		}
+	}
+	item = cJSON_GetObjectItem(root, "live");
+	if(item!=NULL&&(item->type == cJSON_Number))
+	{
+		printf("live %d\n", item->valueint);
+		switch(item->valueint)
+		{
+			case 0:
+				boolValue &= ((~BIT4)&0xFF);//turn off
+				break;
+			case 1:
+				boolValue |= ((BIT4)&0x10);//turn on
+				break;
+			default:break;
+		}
+	}
+#endif
+
+
+#if 0
+		   int i=0;
+		   for(i=0; i<cJSON_GetArraySize(root); i++)   //遍历最外层json键值对
+		   {
+			   cJSON * item = cJSON_GetArrayItem(root, i);
+		       if(cJSON_Object == item->type)      //如果对应键的值仍为cJSON_Object就递归调用printJson
+		       {  //printJson(item);
+		    	   //cJSON * next = cJSON_GetArrayItem(item, i);
+		       }
+		        else if((cJSON_String == item->type))                                //值不为json对象就直接打印出键和值
+		        {
+		            printf("%s->", item->string);
+		            //printf("%s\n", cJSON_Print(item));
+		        }
+		        else if((cJSON_Number == item->type))
+			    {
+		        	printf("%s=", item->string);
+			        printf("%d->", item->valueint);
+			        //printf("%s\n", cJSON_Print(item));
+			    }
+
+		    }
+#endif
+		if(root)
+		{
+			cJSON_Delete(root);
+		}
+#if 0
+		if(item)
+		{
+			//printf("item %s\n", cJSON_Print(item));//memory leak
+			 if(item->type==cJSON_String)
+				 printf("item %s\n", item->valuestring);
+			 else if(item->type==cJSON_Number)
+				 printf("item %d\n", item->valueint);
+			 //free(item);
+		}
+#endif
+	}
+}
+
+//creak socket and rev task
 static void tcp_cli_task(void *pvParameters)
 {
-	struct sockaddr_in server_addr;
-	//uint8_t
+
 	char data_buffer[512];
-//	uint8_t xbuffer[]="Temparature: 30.00C ";
-//	uint8_t *xbuffer=malloc(512);
+
 	int length;
 	int err;
 
+	socket_init();//socket init
+
 #if(ESPWS2812==1)
-	rgbVal *pixels;
+//	rgbVal *pixels;
 	pixels = malloc(sizeof(rgbVal) * pixel_count);
 	ws2812_init(WS2812_PIN);
 #endif
 
-    const struct addrinfo hints = {
+#if 0
+	struct sockaddr_in server_addr;
+
+    const struct addrinfo hints =
+    {
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
     };
@@ -1574,8 +2206,10 @@ static void tcp_cli_task(void *pvParameters)
 
 
 	err = getaddrinfo(WEB_SERVER, NULL, &hints, &res);
+	vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-    if(err != 0 || res == NULL) {
+    if(err != 0 || res == NULL)
+    {
         printf("DNS lookup failed err=%d res=%p", err, res);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -1588,55 +2222,87 @@ static void tcp_cli_task(void *pvParameters)
     //printf("addr:%d==%d\r\n",addr->s_addr,inet_addr("39.106.151.85")); //addr:1435986471==1435986471
 
 SOCKBEGIN:
+	port++;
+	memset(data_buffer,0,sizeof(data_buffer));
+	if(g_iSock_fd>=0)
+	{
+		do
+		{
+			socket_deinit();
+		}while(g_iSock_fd>=0);
+	}
 
 	do
 	{
 		g_iSock_fd = socket(AF_INET, SOCK_STREAM, 0);//socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);  //socket(res->ai_family, res->ai_socktype, 0);
-		if (g_iSock_fd == -1)
+		if (g_iSock_fd < 0)
 		{
-			close(g_iSock_fd);
-			printf("failed to create cli socket %d!\n",g_iSock_fd);
+			socket_deinit();
+			printf("%s:%d, failed to create cli socket %d!\n",__FILE__, __LINE__,g_iSock_fd);
 			vTaskDelay(1000/portTICK_RATE_MS);
+			//freeaddrinfo(res);
 		}
-	}while(g_iSock_fd==-1);
+	}while(g_iSock_fd<0);
+
+	printf("cli create socket %d\n", g_iSock_fd);//0
+#if 0
+	//设置本地端口  set local port: test ok
+	memset(&server_addr, 0, sizeof(server_addr));
+	server_addr.sin_family=AF_INET;
+	server_addr.sin_port=htons(port);
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	err = bind(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if (err < 0)
+    {
+		printf("TCP client ask bind error %d\n",errno);//TCP client ask bind error 98
+		socket_deinit();
+		vTaskDelay(1000/portTICK_RATE_MS);
+		goto SOCKBEGIN;
+    }
+
+#endif
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);//addr->s_addr;/* 将目标服务器的IP写入一个结构体 */  //or  addr->s_addr
+    server_addr.sin_addr.s_addr = (addr->s_addr);//inet_addr(SERVER_IP);//(addr->s_addr);//inet_addr(SERVER_IP);//(addr->s_addr);/* 将目标服务器的IP写入一个结构体 */
     server_addr.sin_port = htons(REMOTE_PORT);
-
-
 
 	do
     {
 		//connect(g_iSock_fd, res->ai_addr, res->ai_addrlen);
        err=connect(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr));//if success is 0
 		//err=connect(g_iSock_fd, res->ai_addr, sizeof(struct sockaddr));//if success is 0
-       if(err!=0)
+       if(err<0)
        {
-        	printf("connect error %d....\r\n",err); //-1
-        	close(g_iSock_fd);
+        	printf(" connect error %d....\r\n",  err); //-1
+        	socket_deinit();
+        	//freeaddrinfo(res);
         	vTaskDelay(1000/portTICK_RATE_MS);
         	goto SOCKBEGIN;
        }
-    }while(err!=0);
+    }while(err<0);
 
-    printf("connect server success %s:%d....\r\n",SERVER_IP,REMOTE_PORT);
-    printf("connect server %s:%d....\r\n",inet_ntoa(*addr),REMOTE_PORT);
+	freeaddrinfo(res);
 
+ //   printf("server static ip:%s:%d....\r\n",SERVER_IP,REMOTE_PORT);
+    printf("dns server ip=%s:%d....\r\n",inet_ntoa(*addr),REMOTE_PORT);
+    printf("connect server success %d/%d....\r\n",err,g_iSock_fd);//0 0
 
 //    send(g_iSock_fd,"The more efforts you make, the more fortunes you get.",sizeof("The more efforts you make, the more fortunes you get."), 0);
+#endif
+
 
 	cJSON * root =  cJSON_CreateObject();//NULL
-    cJSON * item =  cJSON_CreateObject();
-    cJSON * next =  cJSON_CreateObject();
+//    cJSON * item =  cJSON_CreateObject();
+//    cJSON * next =  cJSON_CreateObject();
 
 	int Num=1;
 	cJSON_AddItemToObject(root, "auth", cJSON_CreateString("TDP10"));
-    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "rc",Num);
+    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "pid",Num);
     Num=1;
     cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num));
-    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI"));//或者  cJSON_AddStringToObject(root, "operation", "CALL");
+    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "type", "WIFI0");
 	cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
 	cJSON_AddItemToObject(root, "hwVer", cJSON_CreateString("1.0"));
 
@@ -1644,23 +2310,88 @@ SOCKBEGIN:
     cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
 	cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
 
-    printf("%s\n", cJSON_Print(root));
-    send(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)), 0);//canot use sizeof(cJSON_Print(root))
+    // 打印JSON数据包
+    char *out = cJSON_PrintUnformatted(root);//cJSON_Print(root);//
+    printf("%s\n", out);
+    int ret=send(g_iSock_fd, out, strlen(out), 0);//canot use sizeof(cJSON_Print(root))
+    //int ret=write(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)));
+    if(ret<0)
+    {
+    	socket_deinit();
+    	printf("Socket send error %d\r\n",errno);
 
-//	cJSON_Delete(root); // 释放内存
+    }
+    if(root)
+		cJSON_Delete(root); // 释放内存
+	if(out)
+		free(out);
 
     while(1)
 	{
+#if 1
+        int s;
+        fd_set rfds;
+        struct timeval tv =
+        {
+            .tv_sec = 1,
+            .tv_usec = 0,
+        };
 
+        FD_ZERO(&rfds);
+        FD_SET(g_iSock_fd, &rfds);
+
+        s = select((g_iSock_fd+ 1), &rfds, NULL, NULL, &tv);
+
+        if (s < 0)
+        {
+        	printf("Select failed: errno %d\r\n", errno);
+        }
+        else if (s == 0)
+        {
+        	//printf("Timeout has been reached and nothing has been received\r\n");
+        }
+        else
+        {
+   //         check_and_print(g_iSock_fd, &rfds, "socket");
+        	if (FD_ISSET(g_iSock_fd, &rfds))
+			{
+				if ((length = recv(g_iSock_fd, data_buffer, sizeof(data_buffer)-1,0)) > 0)
+				{
+					//data_buffer[length] = '\0';
+					//printf("%d bytes were received through: %s", length,data_buffer);
+
+					user_make_thread(data_buffer, length);
+					memset(data_buffer,0,length);
+				}
+				else
+				{
+					printf(" read error\r\n");
+					socket_init();
+					//goto SOCKBEGIN;
+				}
+			}
+        }
+	    free32=xPortGetFreeHeapSizeCaps( MALLOC_CAP_32BIT );////heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
+	    free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+	    free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+	    free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
+	    ESP_LOGI(TAG, "-Free heap: %u", xPortGetFreeHeapSize());
+	    ESP_LOGI(TAG, "-Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
+	    ESP_LOGI(TAG, "-Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
+
+        //printf("%s non-block test.\r\n", "A socket");
+#endif
+
+#if 0
 		length = recv(g_iSock_fd, data_buffer, sizeof(data_buffer), 0); //>0 返回收到的字节数目   =0断开连接  <0错误
 
 		if(length>0)//
 		{
-			data_buffer[length]='\0';//0x00;//字符串结束
+			//data_buffer[length]='\0';//0x00;//字符串结束
 			//printf("tcp cli rcv: %s/%d\r\n",data_buffer,length);
 			 //send(g_iSock_fd, data_buffer,length, 0);
 
-			if(data_buffer[0]!='{'&&data_buffer[length]!='}') return;  //cjson
+			if(data_buffer[0]!='{') ;//return;  //cjson   &&data_buffer[length]!='}'如果有空格或者回车
 
 				cJSON * root = NULL;
 				cJSON * item = NULL;//cjson对象
@@ -1709,27 +2440,30 @@ SOCKBEGIN:
 					   //printf("%s\n", item->string);//auth
 					  // printf("%s\n", item->valuestring);//TDP
 
-					   printf("%s\n", "获取pid下的cjson对象");
+					   //printf("%s\n", "获取pid下的cjson对象");
 					   if((item = cJSON_GetObjectItem(root, "pid"))!=NULL)
-					   printf("%s\n", cJSON_Print(item));
+					   printf("pid %s\n", cJSON_Print(item));
 
 					   //printf("%s:", item->string);   //看一下cjson对象的结构体中这两个成员的意思  //pid:
 					   //printf("%s\n", item->valuestring);// 123456789
 
 					   printf("%s\n", "获取type下的cjson对象");
 					   item = cJSON_GetObjectItem(root, "type");
-					if(item==NULL);
-						else
+					if(item!=NULL&&(item->type == cJSON_String))
+					{
+						//printf("type:%s\n", cJSON_Print(item));//"WIFI1"  INCLUDE ""
+						if(strcmp(item->valuestring,"APP2")==0)
 						{
-							printf("type:%s\n", cJSON_Print(item));//"WIFI1"  INCLUDE ""
-							if(strcmp(item->valuestring,"WIFI1")==0)
-							{
-								   printf("Matched type!\r\n");
+							printf("\r\nAPP Begin to Control WiFi!\r\n");
 
-							}
+							//
+						}
+						else if(strcmp(item->valuestring,"APP0")==0)
+						{
+							printf("\r\nAPP logined!\r\n");
 						}
 
-
+					}
 
 //					   printf("%s\n", "获取swVer下的cjson对象");
 //					   item = cJSON_GetObjectItem(root, "swVer");
@@ -1737,72 +2471,60 @@ SOCKBEGIN:
 //						  else
 //					   printf("swVer:%s\n", cJSON_Print(item));
 
-					   printf("%s\n", "获取Mac下的cjson对象");
-					   item = cJSON_GetObjectItem(root, "srcMac");
-						  if(item==NULL);
-						  else
-					   printf("srcMac:%s\n", cJSON_Print(item));
-
-					   item = cJSON_GetObjectItem(root , "dstMac");
-						  if(item==NULL);
-						  else
-					   printf("dstMac:%s\n", cJSON_Print(item));
+					  // printf("%s\n", "获取Mac下的cjson对象");
+					 item = cJSON_GetObjectItem(root, "srcMac");
+					 if(item!=NULL&&(item->type == cJSON_String))
+					 {
+						 printf("srcMac:%s\n", cJSON_Print(item));
+					 }
+					 item = cJSON_GetObjectItem(root , "dstMac");
+					 if(item!=NULL&&(item->type == cJSON_String))
+					 {
+					    printf("dstMac:%s\n", cJSON_Print(item));
+					 }
 
 #if(ESPWS2812==1)
 
 			item = cJSON_GetObjectItem(root, "red");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				//printf("red %d\n", item->type);//3  cJSON_Number
 				colorR=item->valueint;
 				printf("red %d\n", colorR);
 			}
 			item = cJSON_GetObjectItem(root, "green");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				//printf("green %d\n", item->type);//3 cJSON_Number
 				colorG=item->valueint;
 				printf("green %d\n", colorG);
 			}
 			item = cJSON_GetObjectItem(root, "blue");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				//printf("blue %d\n", item->type);//3 cJSON_Number
 				colorB=item->valueint;
 				printf("blue %d\n", colorB);
 			}
-
-			item = cJSON_GetObjectItem(root, "led");
-			if(item==NULL);
-			else
+#if 0
+			item = cJSON_GetObjectItem(root, "illum");//lx
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
-				printf("led %d\n", item->valueint);
-			}
 
-
-			item = cJSON_GetObjectItem(root, "illum");
-			if(item==NULL);
-			else
-			{
 				printf("illum %d\n", item->valueint);
-			}
 
+			}
+#endif
 			item = cJSON_GetObjectItem(root, "bright");
-			uint8_t brightValue;
-			if(item==NULL);
-			else
+			if( item!=NULL && (item->type == cJSON_Number))
 			{
-				//printf("blue %d\n", item->type);//3 cJSON_Number
 				brightValue=item->valueint;
 				colorR=colorR*brightValue/100;
 				colorG=colorG*brightValue/100;
 				colorB=colorB*brightValue/100;
-				printf("R%d G%d B%d\n", colorR,colorG,colorB);
+				printf("	R%d G%d B%d\n", colorR,colorG,colorB);
 			}
-			rgbVal colorRGB=makeRGBVal(colorR, colorG, colorB);
+			colorRGB=makeRGBVal(colorR, colorG, colorB);
 			int i=0;
 			for(i=0;i<pixel_count;i++)
 			{
@@ -1811,28 +2533,40 @@ SOCKBEGIN:
 			ws2812_setColors(pixel_count,  pixels);
 
 			item = cJSON_GetObjectItem(root, "led");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
-
+				//
 				printf("led %d\n", item->valueint);
+				switch(item->valueint)
+				{
+					case 0:
+						boolValue &= ((~BIT0)&0xFF);
+						ws2812_reset(WS2812_PIN);//turn off
+						vTaskDelay(10 / portTICK_RATE_MS);//10ms
+						break;
+					case 1:
+						boolValue |= ((BIT0)&0x01);
+						break;
+					default:break;
+
+				}
 			}
+
 			item = cJSON_GetObjectItem(root, "ledModel");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("ledModel %d\n", item->valueint);
 
-				switch()
+				switch(item->valueint)
 				{
 					case 0:
 
 					break;
 					case 1:
-
+						//xTaskCreate(rgbDisplay, "rgbDisplay", 4096, NULL, 10, &xHandleDisplay);//create a task or timer to do it---task
 					break;
 					case 2:
-
+						//vTaskDelete( xHandleDisplay );//should delete task
 					break;
 					case 3:
 
@@ -1847,39 +2581,143 @@ SOCKBEGIN:
 				}
 			}
 
+			item = cJSON_GetObjectItem(root, "nurseMode");
+			if(item!=NULL&&(item->type == cJSON_Number))
+			{
+				printf("nurseMode %d\n", item->valueint);
+
+				switch(item->valueint)
+				{
+					case 0:
+
+					break;
+					case 1:
+
+					break;
+					case 2:
+
+					break;
+					case 3://auto  //should create a task
+#if 0
+						if(setTemp>getTemp)  //设置温度大于实际温度
+						{
+//open heater
+						}
+						else
+						{
+//close heater
+						}
+
+						if(setHumidity>getHumidity)  //设置湿度大于实际湿度
+						{
+//open water pump
+						}
+						else
+						{
+//close water pump
+						}
+						if(getTemp>setTempMax)
+						{
+
+							//status error TempMax
+						}
+						else if(getTemp<setTempMin)
+						{
+							//status error TempMin
+						}
+
+
+#endif
+
+					break;
+					case 4:
+
+					break;
+					case 5:
+
+					break;
+					default:break;
+				}
+			}
 			item = cJSON_GetObjectItem(root, "temp");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("temp %d\n", item->valueint);
+
 			}
 
 			item = cJSON_GetObjectItem(root, "humidity");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("humidity %d\n", item->valueint);
+
 			}
 
 			item = cJSON_GetObjectItem(root, "fan");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("fan %d\n", item->valueint);
+				switch(item->valueint)
+				{
+					case 0:
+						boolValue &= ((~BIT1)&0xFF);
+						//turn off
+						break;
+					case 1:
+						boolValue |= ((BIT1)&0x02);//turn on
+						break;
+					default:break;
+
+				}
 			}
 			item = cJSON_GetObjectItem(root, "pump");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("pump %d\n", item->valueint);
+				switch(item->valueint)
+				{
+					case 0:
+						boolValue &= ((~BIT2)&0xFF);
+						//turn off
+						break;
+					case 1:
+						boolValue |= ((BIT2)&0x04);//turn on
+						break;
+					default:break;
+				}
 			}
 			item = cJSON_GetObjectItem(root, "sound");
-			if(item==NULL);
-			else
+			if(item!=NULL&&(item->type == cJSON_Number))
 			{
 				printf("sound %d\n", item->valueint);
+				switch(item->valueint)
+				{
+					case 0:
+						boolValue &= ((~BIT3)&0xFF);
+						//turn off
+						break;
+					case 1:
+						boolValue |= ((BIT3)&0x08);//turn on
+						break;
+					default:break;
+				}
 			}
-
+			item = cJSON_GetObjectItem(root, "live");
+			if(item!=NULL&&(item->type == cJSON_Number))
+			{
+				printf("live %d\n", item->valueint);
+				switch(item->valueint)
+				{
+					case 0:
+						boolValue &= ((~BIT4)&0xFF);
+						//turn off
+						break;
+					case 1:
+						boolValue |= ((BIT4)&0x10);//turn on
+						break;
+					default:break;
+				}
+			}
 
 
 #endif
@@ -1918,9 +2756,6 @@ SOCKBEGIN:
 				}
 
 				}
-
-
-
 
 #if 0
 			if(data_buffer[0]=='b' &&data_buffer[1]=='m'&&data_buffer[2]=='p')
@@ -1975,6 +2810,8 @@ SOCKBEGIN:
         	close(g_iSock_fd);
         	goto SOCKBEGIN;
         }
+
+#endif
 
 	}
 }
@@ -2100,8 +2937,8 @@ void uart0_init(void)
 #define TIMER_DIVIDER   16               /*!< Hardware timer clock divider */
 #define TIMER_SCALE    (TIMER_BASE_CLK / TIMER_DIVIDER)  /*!< used to calculate counter value */
 #define TIMER_FINE_ADJ   (1.4*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000) /*!< used to compensate alarm value */
-#define TIMER_INTERVAL0_SEC   (3.4179)   /*!< test interval for timer 0 *///uint:secend
-#define TIMER_INTERVAL1_SEC   (300)//(5.78)   /*!< test interval for timer 1 *///uint:secend
+#define TIMER_INTERVAL0_SEC   (0.001)//(3.4179)   /*!< test interval for timer 0 *///uint:secend
+#define TIMER_INTERVAL1_SEC   (60)//(5.78)   /*!< test interval for timer 1 *///uint:secend
 #define TEST_WITHOUT_RELOAD   0   /*!< example of auto-reload mode */
 #define TEST_WITH_RELOAD   1      /*!< example without auto-reload mode */
 
@@ -2125,14 +2962,16 @@ static void inline print_u64(uint64_t val)
 
 static void timer_example_evt_task(void *arg)
 {
-    while(1) {
+
+    while(1)
+    {
         timer_event_t evt;
         xQueueReceive(timer_queue, &evt, portMAX_DELAY);
-        if(evt.type == TEST_WITHOUT_RELOAD) {
+//       if(evt.type == TEST_WITHOUT_RELOAD) {
 //            printf("\n\n   example of count-up-timer \n");
-        } else if(evt.type == TEST_WITH_RELOAD) {
+//        } else if(evt.type == TEST_WITH_RELOAD) {
 //            printf("\n\n   example of reload-timer \n");
-        }
+//        }
         /*Show timer event from interrupt*/
 //        printf("-------INTR TIME EVT--------\n");
 //        printf("TG[%d] timer[%d] alarm evt\n", evt.group, evt.idx);
@@ -2149,82 +2988,19 @@ static void timer_example_evt_task(void *arg)
 //        printf("reg: ");
 //        print_u64(timer_val);
 //        printf("time: %.8f S\n", time);
-
+        if(evt.idx == TIMER_0) //timer0
+        {
+        	//printf("Timer0 \r\n");
+        	userTimeCount++;
+        	if(userTimeCount>=UINT_MAX)
+        		userTimeCount=0;
+        	if(userTimeCount%100000==0)
+        	{
+        		printf("Timer0 is %us\r\n",(userTimeCount*100000));
+        	}
+        }
+        else if(evt.idx==TIMER_1)
     	{
-    		cJSON * root =  cJSON_CreateObject();//NULL
-    	    //cJSON * item =  cJSON_CreateObject();
-    	    //cJSON * next =  cJSON_CreateObject();
-
-    		int Num=1;
-    		//cJSON_AddItemToObject(root, "AUTH", cJSON_CreateString("TDP10"));
-    	    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "rc",Num);
-    	    Num=1;
-    	    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num+1));
-    	    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "operation", "CALL");
-    		//cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
-    		//cJSON_AddItemToObject(root, "hwVER", cJSON_CreateString("1.0"));
-
-    	    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
-//    		cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
-
-
-#if(ESPDHT11==1)
-    	    setDHTPin(DHT_GPIO);
-    	    if(ReadDHT11(dhtData))  //get temprature
-    	    {
-    	    	uint8_t outstr[10];
-    	    	DHT11_NumToString(dhtData[0],outstr);
-
-    	    	printf("Relative Humidity   :%s%%\r\n",outstr);
-
-    	    	DHT11_NumToString(dhtData[1],outstr);
-
-    	    	DHT11_NumToString(dhtData[2],outstr);
-    	    	printf("Current Temperature :%sC\r\n",outstr);
-    	    	DHT11_NumToString(dhtData[3],outstr);
-
-    	    	 cJSON_AddItemToObject(root, "temp", cJSON_CreateNumber(dhtData[2]));
-    	    	 cJSON_AddItemToObject(root, "humidity", cJSON_CreateNumber(dhtData[0]));
-
-    	    }
-    	    else
-    	    {
-    	    	printf("--Read DHT11 Error!--\n");
-
-    	    }
-
-#endif
-#if(ESPBH1750==1)
-			if(Init_BH1750(33, 27)==0)
-			{
-				uint16_t illum=0;
-				illum=Read_BH1750();
-				printf("--Ambient Light[%d]==%0.2flx\r\n",illum,(float)illum/1.2);
-				cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(Read_BH1750()));
-			}
-			else
-			{
-				printf("--Read BH1750 Error!--\n");
-			}
-
-#endif
-
-    	    Num=28;
-
-    	    cJSON_AddItemToObject(root, "waterLevel", cJSON_CreateNumber(90));
-    	    //cJSON_AddItemToObject(root, "illum", cJSON_CreateNumber(65535));
-    	    cJSON_AddItemToObject(root, "red", cJSON_CreateNumber(colorR));
-    	    cJSON_AddItemToObject(root, "green", cJSON_CreateNumber(colorG));
-    	    cJSON_AddItemToObject(root, "blue", cJSON_CreateNumber(colorB));
-    	    cJSON_AddItemToObject(root, "bright", cJSON_CreateNumber(80));
-    	    cJSON_AddItemToObject(root, "led", cJSON_CreateNumber(1));
-    	    cJSON_AddItemToObject(root, "ledMode", cJSON_CreateNumber(2));
-    	    cJSON_AddItemToObject(root, "fan", cJSON_CreateNumber(0));
-    	    cJSON_AddItemToObject(root, "pump", cJSON_CreateNumber(0));
-    	    cJSON_AddItemToObject(root, "sound", cJSON_CreateNumber(0));
-    	    cJSON_AddItemToObject(root, "live", cJSON_CreateNumber(1));
-    	    printf("%s\n", cJSON_Print(root));
-    	    int ret=send(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)), 0);//canot use sizeof(cJSON_Print(root))
 
     	}
 
@@ -2352,7 +3128,7 @@ static void example_tg0_timer1_init()
 
 void app_main()
 {
-	size_t free8start=0, free32start=0, free8=0, free32=0;
+	//size_t free8start=0, free32start=0, free8=0, free32=0;
 //	heap_mem_log();
     ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",xPortGetFreeHeapSizeCaps(MALLOC_CAP_32BIT));
 
@@ -2364,7 +3140,6 @@ void app_main()
     free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);
 #else
     free32=heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
-    free8=heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     free8start=heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
     free32start=heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
 #endif
@@ -2372,18 +3147,23 @@ void app_main()
 
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());//Free heap: 273368b
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %db, 32-bit capable memory %db\n", free8, free32);
-    //ree (largest free blocks) 8bit-capable memory : 144272b, 32-bit capable memory 144272b
+    //Free (largest free blocks) 8bit-capable memory : 144272b, 32-bit capable memory 144272b
     ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %db, 32-bit capable memory %db\n", free8start, free32start);
 //    Free (min free size) 8bit-capable memory : 272396b, 32-bit capable memory 338868b
 
  //   currFbPtr = heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);
- //   currFbPtr = (volatile uint32_t)heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);//NULL fail why? 320*240*2=153600>144272
 
+#if ESPIDFV21RC
+   currFbPtr=pvPortMallocCaps(320*240*2, MALLOC_CAP_32BIT);//rc V2.1
+#else
+   currFbPtr = (volatile uint32_t)heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);//NULL fail why? 320*240*2=153600>144272
+#endif
+#if 0
     if(CAMERA_FRAME_SIZE==CAMERA_FS_QQVGA)
     	currFbPtr = (volatile uint32_t)pvPortMallocCaps(160*120*2, MALLOC_CAP_32BIT);
     else if(CAMERA_FRAME_SIZE==CAMERA_FS_QVGA)
     	currFbPtr = (volatile uint32_t)pvPortMallocCaps(320*240*2, MALLOC_CAP_32BIT);
-
+#endif
     vTaskDelay(1000 / portTICK_RATE_MS);
 
 //    if (currFbPtr == NULL) {
@@ -2413,6 +3193,7 @@ void app_main()
     vTaskDelay(5000 / portTICK_RATE_MS);
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
+#if 0
     // camera init
     esp_err_t err = camera_probe(&config, &camera_model);
     if (err != ESP_OK) {
@@ -2436,6 +3217,7 @@ void app_main()
         ESP_LOGE(TAG, "Camera not supported");
         //return;
     }
+#endif
 
 #if ESPIDFV21RC
     free8=xPortGetFreeHeapSizeCaps(MALLOC_CAP_8BIT);
@@ -2453,7 +3235,7 @@ void app_main()
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
     ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
 
-
+#if 0
     espilicam_event_group = xEventGroupCreate();
     config.displayBuffer = currFbPtr;
     config.pixel_format = s_pixel_format;
@@ -2468,11 +3250,12 @@ void app_main()
 
     ESP_LOGD(TAG, "Starting http_server task...");
     // keep an eye on stack... 5784 min with 8048 stck size last count..
-    xTaskCreatePinnedToCore(&http_server, "http_server", 4096, NULL, 6, NULL,1);
+//    xTaskCreatePinnedToCore(&http_server, "http_server", 4096, NULL, 7, NULL,1);
 
     ESP_LOGI(TAG, "open http://" IPSTR "/bmp for single image/bitmap image", IP2STR(&s_ip_addr));
     ESP_LOGI(TAG, "open http://" IPSTR "/stream for multipart/x-mixed-replace stream of bitmaps", IP2STR(&s_ip_addr));
     ESP_LOGI(TAG, "open http://" IPSTR "/get for raw image as stored in framebuffer ", IP2STR(&s_ip_addr));
+#endif
 
 #if ESPIDFV21RC
     free8=xPortGetFreeHeapSizeCaps(MALLOC_CAP_8BIT);
@@ -2485,20 +3268,20 @@ void app_main()
     free8start=heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
     free32start=heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
 #endif
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, false, true, portMAX_DELAY);
 
-	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 10, NULL);//TCP Client create and rcv task
-
-	xTaskCreate(&tcp_send_task, "tcp_send_task", 2048, NULL, 8, NULL);//TCP Client Send Task
+	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 7, NULL);//TCP Client create and rcv task // memory leak
+	vTaskDelay(1000 / portTICK_RATE_MS);
+	xTaskCreate(&tcp_send_task, "tcp_send_task", 4096, NULL, 5, NULL);//TCP Client Send Task
 
 
 	/**
 	 * @brief In this test, we will test hardware timer0 and timer1 of timer group0.
 	 */
-    timer_queue = xQueueCreate(10, sizeof(timer_event_t));
-    //example_tg0_timer0_init();
+	timer_queue = xQueueCreate(10, sizeof(timer_event_t));
+    example_tg0_timer0_init();
     example_tg0_timer1_init();
-    xTaskCreate(timer_example_evt_task, "timer_evt_task", 2048, NULL, 5, NULL);
-
+    xTaskCreate(timer_example_evt_task, "timer_evt_task", 2048, NULL, 10, NULL);
 
 
 	//    uart0_init();
@@ -2509,7 +3292,6 @@ void app_main()
 //    xTaskCreate(rainbow, "ws2812 rainbow demo", 4096, NULL, 10, NULL);
 
 #endif
-
 
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
@@ -2563,7 +3345,9 @@ void app_main()
      dac_output_voltage(DAC_CHANNEL_1, 127);
      dac_output_voltage(DAC_CHANNEL_2, 127);
 #endif
-     while (1)
+
+
+//     while (1)
      {
 #if ESPI2SOUT
          setup_triangle_sine_waves(test_bits);
@@ -2591,10 +3375,5 @@ void app_main()
 #endif
 #endif
 //===========================================
-
-
-
      }
-
-
 }

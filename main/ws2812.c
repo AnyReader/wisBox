@@ -190,3 +190,9 @@ void ws2812_setColors(unsigned int length, rgbVal *array)
 
   return;
 }
+
+void ws2812_reset(int gpioNum) //reset more than 50us
+{
+	gpio_set_level(gpioNum,0);
+
+}
