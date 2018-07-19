@@ -162,7 +162,7 @@ esp_err_t camera_probe(const camera_config_t* config, camera_model_t* out_camera
 
     ESP_LOGD(TAG, "Initializing SSCB");
     SCCB_Init(config->pin_sscb_sda, config->pin_sscb_scl);
-
+/**
     ESP_LOGD(TAG, "HW Resetting camera");
     gpio_config_t conf = { 0 };
     conf.pin_bit_mask = 1LL << config->pin_reset;
@@ -175,11 +175,11 @@ esp_err_t camera_probe(const camera_config_t* config, camera_model_t* out_camera
     gpio_pulldown_dis(config->pin_reset); // ov7670 reqd
     gpio_set_level(config->pin_reset, 1);
     delay(100);
-
+**/
     ESP_LOGD(TAG, "Searching for camera address");
     /* Probe the sensor */
     delay(200);
-    uint8_t slv_addr = 0x21;//OV7670 0x42= 0x21<<1;//SCCB_Probe();
+    uint8_t slv_addr = SCCB_Probe();//0x21;//OV7670 0x42= 0x21<<1;//SCCB_Probe();
     if (slv_addr == 0) {
         *out_camera_model = CAMERA_NONE;
         return ESP_ERR_CAMERA_NOT_DETECTED;

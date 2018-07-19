@@ -33,8 +33,8 @@
 #include "limits.h"
 #include "lwip/netdb.h"
 
-#define WIFI_SSID 	    "ChinaMobile"//"dong_zhang"//////CONFIG_WIFI_SSID
-#define WIFI_PASSWORD	"{85208520}"//"qiangying"//////CONFIG_WIFI_PASSWORD
+#define WIFI_SSID 	    "ChinaMobile"//"dong_zhang"//CONFIG_WIFI_SSID
+#define WIFI_PASSWORD	"{85208520}"//"qiangying"//CONFIG_WIFI_PASSWORD
 
 //tcp
 
@@ -43,7 +43,7 @@
 //#define WEB_URL		"http://wodan.vip/"
 
 int g_iSock_fd=-1;
-#define SERVER_IP  		"39.106.151.85"//"192.168.1.102"//"39.106.151.85"////
+#define SERVER_IP  		"192.168.1.102"//"39.106.151.85"////"39.106.151.85"////
 #define REMOTE_PORT		8088
 
 uint32_t port=8086;
@@ -538,7 +538,7 @@ static camera_config_t config = {
     .pin_href = CONFIG_HREF,
     .pin_sscb_sda = CONFIG_SDA,
     .pin_sscb_scl = CONFIG_SCL,
-    .pin_reset = CONFIG_RESET,
+ //   .pin_reset = CONFIG_RESET,
     .xclk_freq_hz = CONFIG_XCLK_FREQ,
 #if  CONFIG_ENABLE_TEST_PATTERN
     .test_pattern_enabled = CONFIG_ENABLE_TEST_PATTERN,//test_pattern_enabled =1   //disable = 0
@@ -1631,7 +1631,6 @@ static void socket_init()
     int err;
     struct sockaddr_in saddr;// = { 0 };
 
-
  //   tcpip_adapter_init();
 
    // err = getaddrinfo("localhost", "80", &hints, &res);
@@ -1640,6 +1639,8 @@ static void socket_init()
 //        printf("DNS lookup failed: %d", errno);
 //        return;
 //    }
+
+SOCKBEGIN:
 
 	if(g_iSock_fd>=0)
 	{
@@ -1650,7 +1651,6 @@ static void socket_init()
 	}
 
 
-SOCKBEGIN:
 
 do{
     g_iSock_fd =  socket(AF_INET, SOCK_STREAM, 0);//socket(res->ai_family, res->ai_socktype, 0);
@@ -1712,14 +1712,47 @@ do{
 
 }
 
+//create and send
 static void tcp_send_task(void *pvParameters)
 {
 //	uint32_t esp_timer_count =system_get_time();
     //esp_timer_count=system_get_time();
-	int ret;
-	int Num;
+	int ret=0;
+	int Num=0;
 
-//	socket_init();
+	//socket_init();
+
+	cJSON * root =  cJSON_CreateObject();//NULL
+//    cJSON * item =  cJSON_CreateObject();
+//    cJSON * next =  cJSON_CreateObject();
+
+	cJSON_AddItemToObject(root, "auth", cJSON_CreateString("TDP10"));
+    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "pid",Num);
+    Num=1;
+    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num));
+    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "type", "WIFI0");
+	cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
+	cJSON_AddItemToObject(root, "hwVer", cJSON_CreateString("1.0"));
+
+   // cJSON_AddItemToObject(root, "Mac", item);//root节点下添加节点MAC
+    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
+	cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
+
+    // 打印JSON数据包
+    char *out = cJSON_PrintUnformatted(root);//cJSON_Print(root);//
+    printf("%s\n", out);
+    ret=send(g_iSock_fd, out, strlen(out), 0);//canot use sizeof(cJSON_Print(root))
+    //int ret=write(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)));
+    if(ret<0)
+    {
+    	socket_deinit();
+    	printf("Socket send error %d\r\n",errno);
+
+    }
+    if(root)
+		cJSON_Delete(root); // 释放内存
+	if(out)
+		free(out);
 
 //	ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_32BIT));
 //	ESP_LOGI(TAG,"get free size of 8BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
@@ -1728,7 +1761,7 @@ static void tcp_send_task(void *pvParameters)
     free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
     free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
-    ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
+//    ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
     ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
 
@@ -1813,17 +1846,22 @@ static void tcp_send_task(void *pvParameters)
 	    char *out = cJSON_Print(root);
 	    printf("%s\n", out);	// 打印JSON数据包
 	    ret=send(g_iSock_fd, out, strlen(out), 0);//canot use sizeof(cJSON_Print(root))  //memory leak
-	    if(ret<0)
-	    {
-	    	socket_init();
-	    }
 		if(root)
 		{
 			cJSON_Delete(root);
 		}
 		if(out)
 			free(out);
+	    if(ret<0)
+	    {
+	    	//socket_deinit();
+	    	printf("--send Error!--\n");
+	    	//socket_init();
+	    }
+
+
 		vTaskDelay(5000 / portTICK_RATE_MS);
+
 //		ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_32BIT));
 //		ESP_LOGI(TAG,"get free size of 8BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 #if 0
@@ -2185,6 +2223,7 @@ static void tcp_cli_task(void *pvParameters)
 	int length;
 	int err;
 
+NEWBEGIN:
 	socket_init();//socket init
 
 #if(ESPWS2812==1)
@@ -2293,39 +2332,6 @@ SOCKBEGIN:
 #endif
 
 
-	cJSON * root =  cJSON_CreateObject();//NULL
-//    cJSON * item =  cJSON_CreateObject();
-//    cJSON * next =  cJSON_CreateObject();
-
-	int Num=1;
-	cJSON_AddItemToObject(root, "auth", cJSON_CreateString("TDP10"));
-    cJSON_AddItemToObject(root, "pid", cJSON_CreateNumber(Num));//根节点下添加  或者cJSON_AddNumberToObject(root, "pid",Num);
-    Num=1;
-    cJSON_AddItemToObject(root, "tid", cJSON_CreateNumber(Num));
-    cJSON_AddItemToObject(root, "type", cJSON_CreateString("WIFI0"));//或者  cJSON_AddStringToObject(root, "type", "WIFI0");
-	cJSON_AddItemToObject(root, "swVer", cJSON_CreateString("1.0"));
-	cJSON_AddItemToObject(root, "hwVer", cJSON_CreateString("1.0"));
-
-   // cJSON_AddItemToObject(root, "Mac", item);//root节点下添加节点MAC
-    cJSON_AddItemToObject(root, "srcMac",cJSON_CreateString("A4-E9-75-3D-DC-DF"));
-	cJSON_AddItemToObject(root, "dstMac",cJSON_CreateString("04-12-56-7E-2A-38"));
-
-    // 打印JSON数据包
-    char *out = cJSON_PrintUnformatted(root);//cJSON_Print(root);//
-    printf("%s\n", out);
-    int ret=send(g_iSock_fd, out, strlen(out), 0);//canot use sizeof(cJSON_Print(root))
-    //int ret=write(g_iSock_fd, cJSON_Print(root), strlen(cJSON_Print(root)));
-    if(ret<0)
-    {
-    	socket_deinit();
-    	printf("Socket send error %d\r\n",errno);
-
-    }
-    if(root)
-		cJSON_Delete(root); // 释放内存
-	if(out)
-		free(out);
-
     while(1)
 	{
 #if 1
@@ -2365,20 +2371,25 @@ SOCKBEGIN:
 				}
 				else
 				{
-					printf(" read error\r\n");
-					socket_init();
-					//goto SOCKBEGIN;
+
+					printf("rcv failed: errno %d\r\n", errno);
+					//printf(" read error\r\n");
+					vTaskDelay(1000 / portTICK_RATE_MS);
+					goto NEWBEGIN;
+					//vTaskDelete(NULL);
+					//socket_init();
 				}
 			}
         }
+#if 0
 	    free32=xPortGetFreeHeapSizeCaps( MALLOC_CAP_32BIT );////heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
 	    free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
 	    free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
 	    free32start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_32BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT);
-	    ESP_LOGI(TAG, "-Free heap: %u", xPortGetFreeHeapSize());
+	    //ESP_LOGI(TAG, "-Free heap: %u", xPortGetFreeHeapSize());
 	    ESP_LOGI(TAG, "-Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
 	    ESP_LOGI(TAG, "-Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
-
+#endif
         //printf("%s non-block test.\r\n", "A socket");
 #endif
 
@@ -3193,7 +3204,7 @@ void app_main()
     vTaskDelay(5000 / portTICK_RATE_MS);
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-#if 0
+#if 1
     // camera init
     esp_err_t err = camera_probe(&config, &camera_model);
     if (err != ESP_OK) {
@@ -3235,7 +3246,7 @@ void app_main()
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
     ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
 
-#if 0
+#if 1
     espilicam_event_group = xEventGroupCreate();
     config.displayBuffer = currFbPtr;
     config.pixel_format = s_pixel_format;
@@ -3250,7 +3261,7 @@ void app_main()
 
     ESP_LOGD(TAG, "Starting http_server task...");
     // keep an eye on stack... 5784 min with 8048 stck size last count..
-//    xTaskCreatePinnedToCore(&http_server, "http_server", 4096, NULL, 7, NULL,1);
+    xTaskCreatePinnedToCore(&http_server, "http_server", 4096, NULL, 7, NULL,1);
 
     ESP_LOGI(TAG, "open http://" IPSTR "/bmp for single image/bitmap image", IP2STR(&s_ip_addr));
     ESP_LOGI(TAG, "open http://" IPSTR "/stream for multipart/x-mixed-replace stream of bitmaps", IP2STR(&s_ip_addr));
@@ -3272,8 +3283,9 @@ void app_main()
 
 	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 7, NULL);//TCP Client create and rcv task // memory leak
 	vTaskDelay(1000 / portTICK_RATE_MS);
-	xTaskCreate(&tcp_send_task, "tcp_send_task", 4096, NULL, 5, NULL);//TCP Client Send Task
 
+
+//	xTaskCreate(&tcp_send_task, "tcp_send_task", 4096, NULL, 5, NULL);//TCP Client Send Task
 
 	/**
 	 * @brief In this test, we will test hardware timer0 and timer1 of timer group0.
@@ -3284,7 +3296,7 @@ void app_main()
     xTaskCreate(timer_example_evt_task, "timer_evt_task", 2048, NULL, 10, NULL);
 
 
-	//    uart0_init();
+	//uart0_init();
 //    xTaskCreatePinnedToCore(&uart_task, "uart_task", 512, NULL, 7, NULL,1);
 
 #if(ESPWS2812==1)
@@ -3317,7 +3329,7 @@ void app_main()
          .sample_rate = SAMPLE_RATE,
          .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,//16,    /*if using DAC, the DAC module will only take the 8bits from MSB */
          .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,        //2-channels
-         .communication_format = I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_LSB,
+         .communication_format = I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_LSB,  //for 8211
          .dma_buf_count = 6,
          .dma_buf_len = 60,                                                     //
          .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1                                //Interrupt level 1
