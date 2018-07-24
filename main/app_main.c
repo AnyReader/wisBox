@@ -23,6 +23,7 @@
 #include "freertos/event_groups.h"
 
 #include "driver/uart.h"
+#include "driver/rtc_io.h"
 
 #include "esp_system.h"
 //#include "esp_task_wdt.h"
@@ -36,6 +37,9 @@
 #define WIFI_SSID 	    "ChinaMobile"//"dong_zhang"//CONFIG_WIFI_SSID
 #define WIFI_PASSWORD	"{85208520}"//"qiangying"//CONFIG_WIFI_PASSWORD
 
+//spi ram
+#define BUF_SIZE 2*1024*1024
+
 //tcp
 
 #define WEB_SERVER		"www.wodan.vip"
@@ -43,11 +47,68 @@
 //#define WEB_URL		"http://wodan.vip/"
 
 int g_iSock_fd=-1;
-#define SERVER_IP  		"192.168.1.102"//"39.106.151.85"////"39.106.151.85"////
+#define SERVER_IP  		"39.106.151.85"//"192.168.1.102"//////"39.106.151.85"////
 #define REMOTE_PORT		8088
 
 uint32_t port=8086;
 //
+
+#define RELAY_0_IO_NUM   15
+#define RELAY_1_IO_NUM   12
+#define RELAY_2_IO_NUM   1
+
+#define GPIO_OUTPUT_IO_0    15	////io15  rtc io
+#define GPIO_OUTPUT_IO_1    12	//io12  test ok
+//#define GPIO_OUTPUT_IO_2    1	//io1
+
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1)| (1ULL<<GPIO_OUTPUT_IO_1))
+
+#define close_relay_0()		gpio_set_level(RELAY_0_IO_NUM, 0)//rtc_gpio_set_level(GPIO_OUTPUT_IO_0, 0)
+#define open_relay_0()		gpio_set_level(RELAY_0_IO_NUM, 1)//rtc_gpio_set_level(GPIO_OUTPUT_IO_0, 1)
+
+#define close_relay_1()		gpio_set_level(RELAY_1_IO_NUM, 0)   //
+#define open_relay_1()		gpio_set_level(RELAY_1_IO_NUM, 1)  //test ok
+
+//#define close_relay_2()	gpio_set_level(GPIO_OUTPUT_IO_2, 0)	//fan
+//#define open_relay_2()	gpio_set_level(GPIO_OUTPUT_IO_2, 1)	//
+
+void relayCtrlInit()
+{
+#if 1
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO12/15
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf.pin_bit_mask = (1ULL<<GPIO_OUTPUT_IO_0);
+
+    //enable pull-down mode
+    io_conf.pull_down_en = 1;
+
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+#endif
+
+#if 0
+    rtc_gpio_init(GPIO_OUTPUT_IO_0);
+    rtc_gpio_init(GPIO_OUTPUT_IO_1);
+
+    rtc_gpio_set_direction(GPIO_OUTPUT_IO_0, RTC_GPIO_MODE_OUTPUT_ONLY);
+    rtc_gpio_set_direction(GPIO_OUTPUT_IO_1, RTC_GPIO_MODE_OUTPUT_ONLY);
+
+    rtc_gpio_pullup_dis(GPIO_OUTPUT_IO_0);
+    rtc_gpio_pullup_dis(GPIO_OUTPUT_IO_1);
+
+    rtc_gpio_pulldown_en(GPIO_OUTPUT_IO_0);
+    rtc_gpio_pulldown_en(GPIO_OUTPUT_IO_1);
+#endif
+}
+
+
 
 #define ESPIDFV21RC 1
 
@@ -259,7 +320,7 @@ int play(const unsigned char *audio, uint32_t length ) {
 #define ESPDHT11	1
 #if ESPDHT11
   #include "dht11.h"
-#define DHT_GPIO 14
+#define DHT_GPIO 3
 	uint8_t dhtData[4];
 
 #endif
@@ -289,7 +350,7 @@ int play(const unsigned char *audio, uint32_t length ) {
 #if ESPWS2812
 #include "ws2812.h" //Include library
 
-#define WS2812_PIN	15
+#define WS2812_PIN	13
 const uint8_t pixel_count = 3; // Number of your "pixels"
 rgbVal colorRGB;
 rgbVal *pixels;
@@ -474,14 +535,14 @@ void rainbow(void *pvParameters)
 #endif
 #endif
 
-#define ESPBH1750	0
+#define ESPBH1750	1
 #if ESPBH1750
   #include "bh1750.h"
 
 #endif
 
 
-
+#define CAMENABLE		0
 
 #define CAMERA_PIXEL_FORMAT CAMERA_PF_RGB565
 //#define CAMERA_PIXEL_FORMAT CAMERA_PF_YUV422
@@ -1618,6 +1679,7 @@ void printJson(cJSON * root)//以递归的方式打印json的最内层键值对
 static void socket_deinit()
 {
    // close(g_iSock_fd);
+	if(g_iSock_fd>=0)
     closesocket(g_iSock_fd);
     g_iSock_fd = g_iSock_fd -1;
     port++;
@@ -1813,7 +1875,7 @@ static void tcp_send_task(void *pvParameters)
 
 #endif
 #if(ESPBH1750==1)
-		if(Init_BH1750(33, 27)==0)
+		if(Init_BH1750(14, 27)==0)
 		{
 			uint16_t illum=0;
 			illum=Read_BH1750();
@@ -1859,12 +1921,9 @@ static void tcp_send_task(void *pvParameters)
 	    	//socket_init();
 	    }
 
-
-		vTaskDelay(5000 / portTICK_RATE_MS);
-
 //		ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_32BIT));
 //		ESP_LOGI(TAG,"get free size of 8BIT heap : %d\n",heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-#if 0
+#if 1
 	    free32=xPortGetFreeHeapSizeCaps( MALLOC_CAP_32BIT );////heap_caps_get_largest_free_block(MALLOC_CAP_32BIT);
 	    free8=xPortGetFreeHeapSizeCaps( MALLOC_CAP_8BIT );//heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
 	    free8start=xPortGetMinimumEverFreeHeapSizeCaps(MALLOC_CAP_8BIT);//heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
@@ -1875,6 +1934,7 @@ static void tcp_send_task(void *pvParameters)
 
 //	    ESP_LOGI(TAG,"#get free size of 32BIT heap : %d\n",xPortGetFreeHeapSizeCaps(MALLOC_CAP_32BIT));
 #endif
+	    vTaskDelay(50000 / portTICK_RATE_MS);
     }
 }
 
@@ -2116,9 +2176,11 @@ void user_make_thread(char *xBuffer, uint32_t xLength)
 		{
 			case 0:
 				boolValue &= ((~BIT1)&0xFF);//turn off
+				close_relay_0();
 				break;
 			case 1:
 				boolValue |= ((BIT1)&0x02);//turn on
+				open_relay_0();
 				break;
 			default:break;
 
@@ -2131,11 +2193,12 @@ void user_make_thread(char *xBuffer, uint32_t xLength)
 		switch(item->valueint)
 		{
 			case 0:
-				boolValue &= ((~BIT2)&0xFF);
-				//turn off
+				boolValue &= ((~BIT2)&0xFF);//turn off
+				close_relay_1();
 				break;
 			case 1:
 				boolValue |= ((BIT2)&0x04);//turn on
+				open_relay_1();
 				break;
 			default:break;
 		}
@@ -2231,106 +2294,6 @@ NEWBEGIN:
 	pixels = malloc(sizeof(rgbVal) * pixel_count);
 	ws2812_init(WS2812_PIN);
 #endif
-
-#if 0
-	struct sockaddr_in server_addr;
-
-    const struct addrinfo hints =
-    {
-        .ai_family = AF_INET,
-        .ai_socktype = SOCK_STREAM,
-    };
-    struct addrinfo *res;
-    struct in_addr *addr;
-
-
-	err = getaddrinfo(WEB_SERVER, NULL, &hints, &res);
-	vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-    if(err != 0 || res == NULL)
-    {
-        printf("DNS lookup failed err=%d res=%p", err, res);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-
-    /* Code to print the resolved IP.
-
-       Note: inet_ntoa is non-reentrant, look at ipaddr_ntoa_r for "real" code */
-    addr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
-    printf("DNS lookup succeeded. IP=%s\r\n", inet_ntoa(*addr));//DNS lookup succeeded. IP=39.106.151.85
-    //printf("addr:%d==%d\r\n",addr->s_addr,inet_addr("39.106.151.85")); //addr:1435986471==1435986471
-
-SOCKBEGIN:
-	port++;
-	memset(data_buffer,0,sizeof(data_buffer));
-	if(g_iSock_fd>=0)
-	{
-		do
-		{
-			socket_deinit();
-		}while(g_iSock_fd>=0);
-	}
-
-	do
-	{
-		g_iSock_fd = socket(AF_INET, SOCK_STREAM, 0);//socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);  //socket(res->ai_family, res->ai_socktype, 0);
-		if (g_iSock_fd < 0)
-		{
-			socket_deinit();
-			printf("%s:%d, failed to create cli socket %d!\n",__FILE__, __LINE__,g_iSock_fd);
-			vTaskDelay(1000/portTICK_RATE_MS);
-			//freeaddrinfo(res);
-		}
-	}while(g_iSock_fd<0);
-
-	printf("cli create socket %d\n", g_iSock_fd);//0
-#if 0
-	//设置本地端口  set local port: test ok
-	memset(&server_addr, 0, sizeof(server_addr));
-	server_addr.sin_family=AF_INET;
-	server_addr.sin_port=htons(port);
-	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	err = bind(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (err < 0)
-    {
-		printf("TCP client ask bind error %d\n",errno);//TCP client ask bind error 98
-		socket_deinit();
-		vTaskDelay(1000/portTICK_RATE_MS);
-		goto SOCKBEGIN;
-    }
-
-#endif
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = (addr->s_addr);//inet_addr(SERVER_IP);//(addr->s_addr);//inet_addr(SERVER_IP);//(addr->s_addr);/* 将目标服务器的IP写入一个结构体 */
-    server_addr.sin_port = htons(REMOTE_PORT);
-
-	do
-    {
-		//connect(g_iSock_fd, res->ai_addr, res->ai_addrlen);
-       err=connect(g_iSock_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr));//if success is 0
-		//err=connect(g_iSock_fd, res->ai_addr, sizeof(struct sockaddr));//if success is 0
-       if(err<0)
-       {
-        	printf(" connect error %d....\r\n",  err); //-1
-        	socket_deinit();
-        	//freeaddrinfo(res);
-        	vTaskDelay(1000/portTICK_RATE_MS);
-        	goto SOCKBEGIN;
-       }
-    }while(err<0);
-
-	freeaddrinfo(res);
-
- //   printf("server static ip:%s:%d....\r\n",SERVER_IP,REMOTE_PORT);
-    printf("dns server ip=%s:%d....\r\n",inet_ntoa(*addr),REMOTE_PORT);
-    printf("connect server success %d/%d....\r\n",err,g_iSock_fd);//0 0
-
-//    send(g_iSock_fd,"The more efforts you make, the more fortunes you get.",sizeof("The more efforts you make, the more fortunes you get."), 0);
-#endif
-
 
     while(1)
 	{
@@ -3143,6 +3106,7 @@ void app_main()
 //	heap_mem_log();
     ESP_LOGI(TAG,"get free size of 32BIT heap : %d\n",xPortGetFreeHeapSizeCaps(MALLOC_CAP_32BIT));
 
+    relayCtrlInit();
 
 #if ESPIDFV21RC
     free8=xPortGetFreeHeapSizeCaps(MALLOC_CAP_8BIT);
@@ -3164,10 +3128,10 @@ void app_main()
 
  //   currFbPtr = heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);
 
-#if ESPIDFV21RC
+#if ESPIDFV21RC&CAMENABLE
    currFbPtr=pvPortMallocCaps(320*240*2, MALLOC_CAP_32BIT);//rc V2.1
 #else
-   currFbPtr = (volatile uint32_t)heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);//NULL fail why? 320*240*2=153600>144272
+//   currFbPtr = (volatile uint32_t)heap_caps_malloc(160*120*2, MALLOC_CAP_32BIT);//NULL fail why? 320*240*2=153600>144272
 #endif
 #if 0
     if(CAMERA_FRAME_SIZE==CAMERA_FS_QQVGA)
@@ -3204,7 +3168,7 @@ void app_main()
     vTaskDelay(5000 / portTICK_RATE_MS);
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-#if 1
+#if CAMENABLE
     // camera init
     esp_err_t err = camera_probe(&config, &camera_model);
     if (err != ESP_OK) {
@@ -3246,7 +3210,7 @@ void app_main()
     ESP_LOGI(TAG, "Free (largest free blocks) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8, free32);
     ESP_LOGI(TAG, "Free (min free size) 8bit-capable memory : %d, 32-bit capable memory %d\n", free8start, free32start);
 
-#if 1
+#if CAMENABLE
     espilicam_event_group = xEventGroupCreate();
     config.displayBuffer = currFbPtr;
     config.pixel_format = s_pixel_format;
@@ -3284,8 +3248,7 @@ void app_main()
 	xTaskCreate(&tcp_cli_task, "tcp_cli_task", 4096, NULL, 7, NULL);//TCP Client create and rcv task // memory leak
 	vTaskDelay(1000 / portTICK_RATE_MS);
 
-
-//	xTaskCreate(&tcp_send_task, "tcp_send_task", 4096, NULL, 5, NULL);//TCP Client Send Task
+	xTaskCreate(&tcp_send_task, "tcp_send_task", 4096, NULL, 5, NULL);//TCP Client Send Task
 
 	/**
 	 * @brief In this test, we will test hardware timer0 and timer1 of timer group0.
@@ -3359,7 +3322,7 @@ void app_main()
 #endif
 
 
-//     while (1)
+     while (1)
      {
 #if ESPI2SOUT
          setup_triangle_sine_waves(test_bits);

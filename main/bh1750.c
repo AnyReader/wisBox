@@ -5,10 +5,13 @@
 #include <stdio.h>
 #include "../../components/camera/twi.h"
 #include "rom/ets_sys.h"
-
-
+#include "driver/gpio.h"
 
 #define 	_delay_ms(ms)  ets_delay_us(1000*ms)
+
+#define _scl_high(gpioNum)	 	gpio_set_level(gpioNum,1)
+#define _sda_high(gpioNum) 		gpio_set_level(gpioNum,1)
+
 
 /*************************************************************
   Function   :Cmd_Write_BH1750
@@ -63,7 +66,10 @@ void Start_BH1750(void)
 uint8_t Init_BH1750(int pin_sda, int pin_scl)
 {
 	uint8_t ret=0;
-//	twi_init(pin_sda, pin_scl);//I2Cx_Init();
+	twi_init(pin_sda, pin_scl);//I2Cx_Init();
+	//_scl_high(pin_scl);
+	//_sda_high(pin_sda);
+
 	if(Cmd_Write_BH1750(BH1750_ON))	   //power on
 	{
 		ret=0xff;
